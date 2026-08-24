@@ -6,12 +6,23 @@ tests pin the real transformation, not a paraphrase of it.
 """
 from __future__ import annotations
 
+import base64
 import copy
+import io
 
 import pytest
+from PIL import Image
 
+# MUST precede vendored imports (sys.path side effect).
+import aigpt._vendor_path  # noqa: F401
 from aigpt.engine import image_wire
 from aigpt.engine.image_wire import Followup
+from services.openai_backend_api import OpenAIBackendAPI
+from utils.helper import UpstreamHTTPError
+
+_PNG_BUF = io.BytesIO()
+Image.new("RGB", (1, 1), "red").save(_PNG_BUF, format="PNG")
+_PNG_B64 = base64.b64encode(_PNG_BUF.getvalue()).decode()
 
 
 def _make_vendor_i2i_body() -> dict:
@@ -283,3 +294,247 @@ def test_begin_generation_resets_library_map_and_flag():
     image_wire.begin_generation()
     assert image_wire._library_map == {}
     assert image_wire._rejected is False
+
+
+# ---------------------------------------------------------------------------
+# Interceptor tests (fake session + duck backend, no network).
+# ---------------------------------------------------------------------------
+_BASE = "https://chatgpt.com"
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int = 200, payload: dict | None = None):
+        self.status_code = status_code
+        self._payload = payload if payload is not None else {}
+        self.text = "{}"
+        self.headers: dict = {}
+
+    def json(self):
+        # Repeatable, like curl_cffi's buffered content.
+        return self._payload
+
+
+class _RecordingSession:
+    """Fake session: records calls, canned responses, optional gen failure."""
+
+    def __init__(self, fail_gen: int | None = None):
+        self.calls: list[tuple[str, object]] = []
+        self.responses: dict[str, _FakeResponse] = {}
+        self.fail_gen = fail_gen
+
+    def post(self, url, *args, **kwargs):
+        self.calls.append((url, kwargs.get("json")))
+        if self.fail_gen is not None and url.endswith("/backend-api/f/conversation"):
+            return _FakeResponse(status_code=self.fail_gen)
+        for suffix, resp in self.responses.items():
+            if url.endswith(suffix):
+                return resp
+        return _FakeResponse()
+
+    def put(self, url, *args, **kwargs):
+        self.calls.append((url, None))
+        return _FakeResponse()
+
+
+class _Reqs:
+    token = "sentinel-token"
+    proof_token = None
+
+
+class _DuckBackend:
+    """Duck-typed OpenAIBackendAPI for the wrapped methods (skips __init__).
+
+    Class attribute lookups resolve to the image_wire-wrapped versions (they
+    were installed on OpenAIBackendAPI at import time), which then delegate
+    to the captured vendored originals.
+    """
+
+    base_url = _BASE
+    user_agent = "test-ua"
+
+    def __init__(self, session: _RecordingSession):
+        self.session = session
+
+    def _headers(self, path, extra=None):
+        return {"X-Test": "1"}
+
+    def _image_headers(self, path, requirements, conduit_token="", accept="*/*"):
+        return {"X-Test": "image"}
+
+    def _image_model_slug(self, model):
+        return "gpt-5-3"
+
+    _decode_image_base64 = OpenAIBackendAPI._decode_image_base64
+    _upload_image = OpenAIBackendAPI._upload_image
+    _start_image_generation = OpenAIBackendAPI._start_image_generation
+    _prepare_image_conversation = OpenAIBackendAPI._prepare_image_conversation
+
+
+_ONE_REF = [{
+    "file_id": "file_abc",
+    "width": 100,
+    "height": 200,
+    "file_size": 1234,
+    "mime_type": "image/png",
+    "file_name": "a.png",
+}]
+
+
+def test_upload_interceptor_adds_library_fields_and_captures_id():
+    session = _RecordingSession()
+    session.responses["/backend-api/files"] = _FakeResponse(payload={
+        "file_id": "file_abc",
+        "upload_url": "https://blob.example/upload",
+        "library_file_id": "libfile_xyz",
+    })
+    backend = _DuckBackend(session)
+    image_wire.begin_generation()
+
+    result = backend._upload_image(_PNG_B64, "a.png")
+
+    register_call = next(
+        (url, body) for url, body in session.calls
+        if url.endswith("/backend-api/files") and isinstance(body, dict)
+    )
+    assert register_call[1]["store_in_library"] is True
+    assert register_call[1]["library_persistence_mode"] == "opportunistic"
+    assert image_wire._library_map == {"file_abc": "libfile_xyz"}
+    assert result["file_id"] == "file_abc"  # vendor read the same response too
+
+
+def test_capture_leaves_response_readable_for_vendor():
+    resp = _FakeResponse(payload={"file_id": "f1", "library_file_id": "lib1"})
+    image_wire.begin_generation()
+    image_wire._capture_library_id(
+        _BASE + "/backend-api/files", {"use_case": "multimodal"}, resp
+    )
+    assert image_wire._library_map["f1"] == "lib1"
+    # The interceptor's .json() read must not consume the vendor's read.
+    assert resp.json() == {"file_id": "f1", "library_file_id": "lib1"}
+
+
+def test_capture_is_best_effort_on_bad_responses():
+    image_wire.begin_generation()
+
+    class _Broken:
+        def json(self):
+            raise ValueError("not json")
+
+    image_wire._capture_library_id(
+        _BASE + "/backend-api/files", {"use_case": "multimodal"}, _Broken()
+    )
+    assert image_wire._library_map == {}
+
+
+def test_matcher_selectivity():
+    gen = _make_vendor_i2i_body()
+    prepare = {
+        "action": "next",
+        "parent_message_id": "uuid",
+        "model": "gpt-5-3",
+        "system_hints": ["picture_v2"],
+        "partial_query": {"id": "uuid", "content": {"parts": ["p"]}},
+    }
+    editable = dict(gen, system_hints=[])
+    files = {"file_name": "a.png", "file_size": 1, "use_case": "multimodal"}
+
+    # The gen matcher hits only the real generation POST...
+    assert image_wire._is_gen_payload(_BASE + "/backend-api/f/conversation", gen)
+    # ...not prepare (same system_hints, but partial_query + /prepare URL),
+    # not editable (system_hints == []), not chat-requirements ({"p": ...}).
+    assert not image_wire._is_gen_payload(
+        _BASE + "/backend-api/f/conversation/prepare", prepare)
+    assert not image_wire._is_gen_payload(
+        _BASE + "/backend-api/f/conversation", editable)
+    assert not image_wire._is_gen_payload(
+        _BASE + "/backend-api/f/conversation", {"p": "token"})
+    # And the files matcher hits only the register call — not the
+    # `/uploaded` confirmation (POSTed with data="{}", no json body).
+    assert image_wire._is_files_register(_BASE + "/backend-api/files", files)
+    # A generation body posted to the files URL still has no "use_case".
+    assert not image_wire._is_files_register(_BASE + "/backend-api/files", gen)
+    # The `/uploaded` confirmation POST carries data="{}", no json body.
+    assert not image_wire._is_files_register(
+        _BASE + "/backend-api/files/file_abc/uploaded", None)
+
+
+def test_gen_wrapper_rewrites_payload_and_restores_session():
+    session = _RecordingSession()
+    backend = _DuckBackend(session)
+    image_wire.begin_generation()
+    image_wire._library_map["file_abc"] = "libfile_xyz"
+
+    backend._start_image_generation(
+        "make it redder", _Reqs(), "conduit-1", "gpt-image-2", _ONE_REF)
+
+    assert len(session.calls) == 1
+    url, sent = session.calls[0]
+    assert url.endswith("/backend-api/f/conversation")
+    assert sent["system_hints"] == []
+    assert sent["parent_message_id"] == "client-created-root"
+    assert sent["local_function_names"] == ["local.continue_in_work"]
+    assert "model_response_contracts" in sent
+    parts = sent["messages"][0]["content"]["parts"]
+    assert parts[0]["asset_pointer"] == "sediment://file_abc"
+    attachment = sent["messages"][0]["metadata"]["attachments"][0]
+    assert attachment["library_file_id"] == "libfile_xyz"
+    assert attachment["source"] == "local"
+    # Exact restore: the override added by the wrapper is gone.
+    assert "post" not in session.__dict__
+
+
+def test_gen_wrapper_flags_followup_rejection_statuses():
+    for status in (400, 404, 422):
+        session = _RecordingSession(fail_gen=status)
+        backend = _DuckBackend(session)
+        image_wire.set_followup("conv-x")
+        with pytest.raises(UpstreamHTTPError):
+            backend._start_image_generation(
+                "blue", _Reqs(), "c", "gpt-image-2")
+        assert image_wire.consume_followup_rejection() is True
+
+    # 500 is a backend failure, not a follow-up rejection.
+    session = _RecordingSession(fail_gen=500)
+    backend = _DuckBackend(session)
+    image_wire.set_followup("conv-x")
+    with pytest.raises(UpstreamHTTPError):
+        backend._start_image_generation("blue", _Reqs(), "c", "gpt-image-2")
+    assert image_wire.consume_followup_rejection() is False
+
+
+def test_rejection_without_active_followup_is_not_flagged():
+    session = _RecordingSession(fail_gen=404)
+    backend = _DuckBackend(session)
+    with pytest.raises(UpstreamHTTPError):
+        backend._start_image_generation("blue", _Reqs(), "c", "gpt-image-2")
+    assert image_wire._rejected is False
+
+
+def test_stacked_outer_interceptor_survives_and_sees_rewritten_body():
+    session = _RecordingSession()
+    backend = _DuckBackend(session)
+    image_wire.begin_generation()
+    class_post = _RecordingSession.post
+    seen: list[tuple[object, object]] = []
+
+    def outer_post(url, *args, **kwargs):
+        body = kwargs.get("json")
+        if isinstance(body, dict):
+            seen.append((body.get("system_hints"), body.get("local_function_names")))
+        return class_post(session, url, *args, **kwargs)
+
+    session.post = outer_post  # an OUTER interceptor as instance attribute
+    try:
+        backend._start_image_generation("p", _Reqs(), "c", "gpt-image-2", _ONE_REF)
+        # The outer interceptor ran INSIDE ours and saw the rewritten body.
+        assert seen == [([], ["local.continue_in_work"])]
+        # Exact restore put the outer interceptor back — it was not stripped.
+        assert session.__dict__["post"] is outer_post
+    finally:
+        del session.post
+
+
+def test_wrappers_are_installed_idempotently():
+    assert getattr(OpenAIBackendAPI._upload_image, "_aigpt_wire", False) is True
+    assert getattr(
+        OpenAIBackendAPI._start_image_generation, "_aigpt_wire", False) is True

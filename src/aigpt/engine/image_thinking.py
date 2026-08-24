@@ -22,6 +22,10 @@ from __future__ import annotations
 
 # MUST precede vendored imports (sys.path side effect).
 import aigpt._vendor_path  # noqa: F401
+
+# Shared exact-restore session.post swap (installed before our own wrapper
+# capture below, which only touches _prepare_image_conversation).
+from aigpt.engine.image_wire import _swap_post
 from services.openai_backend_api import OpenAIBackendAPI
 
 # Reverse-engineered valid enum for the image path. "auto"/None => send nothing.
@@ -67,22 +71,23 @@ def _prepare_image_conversation(self, prompt, requirements, model):
     if _level is None:
         return _orig_prepare(self, prompt, requirements, model)
 
-    real_post = self.session.post
+    def _build(real_post):
+        def _post(url, *args, **kwargs):
+            body = kwargs.get("json")
+            if _is_image_prepare_payload(body):
+                body["thinking_effort"] = _level
+            return real_post(url, *args, **kwargs)
 
-    def _post(url, *args, **kwargs):
-        body = kwargs.get("json")
-        if _is_image_prepare_payload(body):
-            body["thinking_effort"] = _level
-        return real_post(url, *args, **kwargs)
+        return _post
 
-    self.session.post = _post
+    # _swap_post restores exactly: it re-assigns the captured original when an
+    # OUTER interceptor is stacked on top (a plain `del` would strip that
+    # outer interceptor) and removes the override otherwise.
+    restore = _swap_post(self.session, _build)
     try:
         return _orig_prepare(self, prompt, requirements, model)
     finally:
-        # Exact-restore, never `del`: with stacked interceptors a `del` would
-        # strip the OUTER interceptor too (it drops the instance override and
-        # re-exposes the class method, discarding what we captured).
-        self.session.post = real_post
+        restore()
 
 
 # Install once (idempotent across re-imports).

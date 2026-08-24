@@ -92,3 +92,44 @@ def test_vendor_imports_do_not_pull_dead_modules():
     import sys
 
     assert "utils.sentinel" not in sys.modules
+
+
+# ---------------------------------------------------------------------------
+# image_wire matcher ground truth. The wire-alignment module keys its
+# interceptors on the vendored payload shape; if a vendor sync changes that
+# shape, the matchers must be re-derived — not fail silently in production.
+# ---------------------------------------------------------------------------
+import inspect
+
+from aigpt.engine import image_thinking, image_wire
+
+
+def test_vendor_start_image_generation_keeps_wire_matcher_markers():
+    """The generation POST must still be identifiable pre-mutation."""
+    src = inspect.getsource(image_wire._orig_start_image_generation)
+    # The picture_v2 marker both the gen and prepare matchers rely on.
+    assert 'system_hints": ["picture_v2"]' in src, \
+        "vendored gen payload lost the picture_v2 system_hints marker"
+    assert '"messages"' in src, \
+        "vendored gen payload lost the messages key"
+    # The asset scheme the rewrite transforms FROM.
+    assert "file-service://" in src, \
+        "vendored gen payload no longer uses file-service:// asset pointers"
+
+
+def test_vendor_upload_image_keeps_files_matcher_markers():
+    """The files-register POST must still be identifiable."""
+    src = inspect.getsource(image_wire._orig_upload_image)
+    assert "use_case" in src, \
+        "vendored files POST lost the use_case field (matcher ground truth)"
+    assert "/backend-api/files" in src, \
+        "vendored files POST moved to a different path"
+
+
+def test_vendor_prepare_keeps_partial_query_marker():
+    """Prepare and gen must stay distinguishable (partial_query on prepare)."""
+    src = inspect.getsource(image_thinking._orig_prepare)
+    assert "partial_query" in src, \
+        "vendored prepare payload lost partial_query - gen/prepare matchers collide"
+    assert "system_hints" in src, \
+        "vendored prepare payload lost system_hints"

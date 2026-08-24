@@ -29,8 +29,9 @@ wire dialect without any session at all.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Optional
+from typing import Any
 
 # MUST precede vendored imports (sys.path side effect).
 import aigpt._vendor_path  # noqa: F401
@@ -302,6 +303,33 @@ def _wrapped_post(
     return _post
 
 
+def _swap_post(session: Any, build_interceptor: Callable[[Any], Any]) -> Callable[[], None]:
+    """Swap ``session.post`` and return a restorer that exactly undoes it.
+
+    ``build_interceptor(real_post)`` receives the captured original so the
+    interceptor can delegate to it. Restoration is exact in BOTH senses:
+    - if ``post`` was already an instance attribute (an OUTER interceptor is
+      stacked on top), it is assigned back — never ``del``-ed, which would
+      strip that outer interceptor;
+    - if ``post`` resolved from the class (no outer override), the override
+      we added is removed so the session is left byte-for-byte as we found it.
+    """
+    had_instance = "post" in session.__dict__
+    real_post = session.post
+    session.post = build_interceptor(real_post)
+
+    def restore() -> None:
+        if had_instance:
+            session.post = real_post
+            return
+        try:
+            del session.post
+        except AttributeError:
+            session.post = real_post
+
+    return restore
+
+
 def _capture_library_id(url: object, body: object, response: Any) -> None:
     """Remember ``file_id -> library_file_id`` for the generation rewrite.
 
@@ -329,19 +357,21 @@ _orig_start_image_generation = OpenAIBackendAPI._start_image_generation
 
 def _upload_image_w(self, image, file_name: str = "image.png"):
     """Interceptor #1: request library persistence, capture library_file_id."""
-    real_post = self.session.post
-    self.session.post = _wrapped_post(
-        real_post,
-        mutate=lambda url, body: (
-            rewrite_files_body(body) if _is_files_register(url, body) else None
-        ),
-        on_response=_capture_library_id,
-    )
+
+    def _build(real_post):
+        return _wrapped_post(
+            real_post,
+            mutate=lambda url, body: (
+                rewrite_files_body(body) if _is_files_register(url, body) else None
+            ),
+            on_response=_capture_library_id,
+        )
+
+    restore = _swap_post(self.session, _build)
     try:
         return _orig_upload_image(self, image, file_name)
     finally:
-        # Exact-restore: a `del` would strip an outer stacked interceptor too.
-        self.session.post = real_post
+        restore()  # exact-restore: never strips an outer stacked interceptor
 
 
 def _start_image_generation_w(
@@ -354,14 +384,16 @@ def _start_image_generation_w(
     the wrapper, via module state — not by string-matching later.
     """
     global _rejected
-    real_post = self.session.post
 
     def _mutate(url, body):
         if _is_gen_payload(url, body):
             return rewrite_gen_payload(body, _library_map, _followup)
         return None
 
-    self.session.post = _wrapped_post(real_post, mutate=_mutate)
+    def _build(real_post):
+        return _wrapped_post(real_post, mutate=_mutate)
+
+    restore = _swap_post(self.session, _build)
     try:
         return _orig_start_image_generation(
             self, prompt, requirements, conduit_token, model, references
@@ -371,8 +403,7 @@ def _start_image_generation_w(
             _rejected = True
         raise
     finally:
-        # Exact-restore: a `del` would strip an outer stacked interceptor too.
-        self.session.post = real_post
+        restore()  # exact-restore: never strips an outer stacked interceptor
 
 
 # Install once (idempotent across re-imports), same pattern as image_thinking.

@@ -16,7 +16,15 @@ from PIL import Image
 # vendored config's required auth-key env var (single source: see _vendor_path).
 # MUST precede all vendored imports (sys.path side effect).
 import aigpt._vendor_path  # noqa: F401
-from aigpt.engine import image_thinking
+
+# Import = install: class-level wrappers that align the image wire format
+# with the real chatgpt.com client (see engine/image_wire.py). The rewrite
+# fires on the pre-mutation vendored payload, so it must be installed before
+# any generation runs; importing here is the single wiring point.
+from aigpt.engine import (
+    image_thinking,
+    image_wire,  # noqa: F401
+)
 
 # Importing this wires the multi-account pool into the vendored shim AND forces
 # sequential generation (side effects on import); it also exposes the pool
