@@ -1,0 +1,6 @@
+# Upstream chatgpt2api commit that the VERBATIM files under src/aigpt/_vendor/
+# are synced to. Managed by scripts/update-vendor.sh - the last non-comment,
+# non-empty line is the pinned commit SHA. Do not edit by hand.
+#
+# Repo: https://github.com/basketikun/chatgpt2api
+49e455aeb5fafd30d47fcefbabbd300d2a9d2384

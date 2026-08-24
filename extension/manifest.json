@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "GPT Image Studio",
+  "version": "0.3.0",
+  "description": "ChatGPT image generation side panel: generate, edit and review images, backed by the local aigpt server (uv run aigpt-api). Click the toolbar icon to open.",
+  "permissions": ["tabs", "storage", "sidePanel", "webNavigation"],
+  "host_permissions": [
+    "https://platform.openai.com/*",
+    "http://127.0.0.1:8788/*",
+    "http://127.0.0.1:8787/*"
+  ],
+  "side_panel": {
+    "default_path": "iframe.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "GPT Image Studio"
+  }
+}

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Environment
+.venv/
+venv/
+
+# Generated images
+out/
+
+# Credentials
+auth.json
+
+# OS
+.DS_Store
+Thumbs.db

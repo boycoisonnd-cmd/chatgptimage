@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>GPT Image Studio</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: http://127.0.0.1:8787; connect-src http://127.0.0.1:8787 http://127.0.0.1:8788; frame-src 'none'; object-src 'none'; base-uri 'none'">
+  <link rel="stylesheet" href="studio.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <h1><span class="logo">🟣</span> GPT IMAGE STUDIO</h1>
+    <span class="server-dot"><i id="dot"></i><span id="srv">checking…</span></span>
+  </header>
+
+  <main>
+    <!-- Account -->
+    <div class="account-row" id="accountRow">
+      <div class="who">
+        <div class="avatar" id="avatar">?</div>
+        <div>
+          <div class="name" id="accName">Chưa đăng nhập</div>
+          <div class="sub" id="accSub">no account</div>
+        </div>
+      </div>
+      <button class="btn small" id="accBtn">Add account</button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" data-tab="image">IMAGE</div>
+      <div class="tab" data-tab="edit">EDIT</div>
+      <div class="tab" data-tab="chatgpt">CHATGPT</div>
+    </div>
+
+    <!-- IMAGE tab -->
+    <section id="tab-image">
+      <div class="model-chip">🧠 GPT Image 2</div>
+
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="refFile" accept="image/png,image/jpeg,image/webp">
+        <span class="dz-label" id="dzLabel">☁️ Upload Reference</span>
+      </div>
+
+      <div class="field">
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt" placeholder="Describe image..."></textarea>
+      </div>
+
+      <details class="settings">
+        <summary>Advanced Settings</summary>
+        <div class="row2">
+          <div class="field">
+            <label for="aspect">Aspect</label>
+            <select id="aspect">
+              <option value="16:9">16:9</option>
+              <option value="1:1">1:1</option>
+              <option value="3:4">3:4</option>
+              <option value="4:3">4:3</option>
+              <option value="9:16">9:16</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="n">Count</label>
+            <select id="n">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="style">Style</label>
+            <select id="style">
+              <option value="auto">auto</option>
+              <option value="slide">slide</option>
+              <option value="fintech">fintech</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="thinking">Thinking</label>
+            <select id="thinking">
+              <option value="auto">auto</option>
+              <option value="standard">standard</option>
+              <option value="extended">extended</option>
+              <option value="max">max</option>
+            </select>
+          </div>
+        </div>
+      </details>
+
+      <button class="btn primary btn-block" id="genBtn">✨ GENERATE IMAGE</button>
+      <div class="status" id="status"></div>
+    </section>
+
+    <!-- EDIT tab -->
+    <section id="tab-edit" hidden>
+      <div class="dropzone" id="dropzoneEdit">
+        <input type="file" id="editFile" accept="image/png,image/jpeg,image/webp">
+        <span class="dz-label" id="dzLabelEdit">☁️ Upload an image to edit</span>
+      </div>
+      <div class="field">
+        <label for="editPrompt">Edit instruction</label>
+        <textarea id="editPrompt" placeholder="e.g. make the background purple, add a logo top-left"></textarea>
+      </div>
+      <button class="btn primary btn-block" id="editBtn">🛠 EDIT IMAGE</button>
+      <div class="status" id="editStatus"></div>
+    </section>
+
+    <!-- CHATGPT tab -->
+    <section id="tab-chatgpt" hidden>
+      <p class="empty">💬 ChatGPT editing is not available in this panel.</p>
+      <p class="empty">Use <code>aigpt</code> CLI or the MCP server — or open
+        <a href="https://chatgpt.com" target="_blank" rel="noopener">chatgpt.com</a>.
+      </p>
+    </section>
+
+    <!-- HISTORY view -->
+    <section id="view-history" hidden>
+      <div class="hist-grid" id="histGrid"></div>
+    </section>
+  </main>
+
+  <footer>
+    <button class="fbtn" id="fSettings">⚙ Settings</button>
+    <button class="fbtn" id="fHistory">📁 History</button>
+    <button class="fbtn" id="fAccount">👤 Account</button>
+  </footer>
+
+  <script src="iframe.js"></script>
+</body>
+</html>
