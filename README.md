@@ -6,7 +6,7 @@ MCP server + CLI for ChatGPT image generation via the unofficial ChatGPT web bac
 
 ## Features
 
-- **MCP tool** `generate_image` — prompt, aspect, n, style, thinking effort, brand colors, reserved corner
+- **MCP tool** `generate_image` — prompt, aspect, n, style, thinking effort, brand colors, reserved corner, **image-to-image** (edit / compose / style reference)
 - **CLI** — `login`, `accounts`, `logout`, `gen`
 - **HTTP REST API** (`aigpt-api`) — generate images from any project via localhost JSON
 - **Chrome extension** — auto-catches the OAuth callback (no copy-paste) + a **side panel** UI to generate images from any page (click the toolbar icon)
