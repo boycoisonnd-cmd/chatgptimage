@@ -186,7 +186,7 @@ def test_authorize_requires_extension_origin():
     handler.server = _FakeServer()
     handler.do_GET()
 
-    status, payload = sent[0]
+    status, _payload = sent[0]
     assert status == 403
 
 

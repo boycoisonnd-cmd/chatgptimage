@@ -213,7 +213,7 @@ def test_quality_passed_to_request():
          patch("aigpt.engine.generate.stream_image_outputs_with_pool",
                side_effect=_fake_stream):
         from aigpt.engine.generate import generate_image
-        generate_image("x", quality="high")
+        generate_image("x", quality="high", enhance=False)
     assert captured["quality"] == "high"
 
 

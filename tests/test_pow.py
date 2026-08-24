@@ -25,7 +25,7 @@ def test_pow_digest_matches_difficulty():
     difficulty = "0001"  # first 2 bytes must be <= 0x0001
     answer, solved = _pow_generate("seed-xyz", difficulty, config, limit=200_000)
     assert solved
-    final_json = _decode_answer(answer, config)
+    _decode_answer(answer, config)  # round-trips through the same splices
     digest = hashlib.sha3_512(b"seed-xyz" + answer.encode()).digest()
     assert digest[:2] <= bytes.fromhex(difficulty)
 
@@ -53,5 +53,6 @@ def _decode_answer(answer: str, config: list) -> bytes:
     # can't recover i from the answer alone, so just assert the shape parses.
     decoded = pybase64.b64decode(answer)
     assert decoded.startswith(static_1.encode())
+    assert static_2.encode() in decoded
     assert static_3.encode() in decoded
     return decoded
