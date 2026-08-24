@@ -10,6 +10,7 @@ const $ = (id) => document.getElementById(id);
 const state = {
   refImage: null,        // { b64, name } for the IMAGE tab
   editImages: [],        // Array<{ b64, name }> for the EDIT tab (max 4)
+  editConversationId: null, // conversation to continue via "Edit this" (Phase 3)
   accounts: [],
   serverOn: false,
 };
@@ -208,6 +209,8 @@ function renderEditThumbs() {
     rm.textContent = "✕";
     rm.addEventListener("click", () => {
       state.editImages.splice(i, 1);
+      // Removing a loaded image breaks the "Edit this" continuation context.
+      state.editConversationId = null;
       renderEditThumbs();
       if (!state.editImages.length) {
         $("dropzoneEdit").style.display = "block";
@@ -242,6 +245,9 @@ function wireDropzone(dzId, fileId, destKey) {
         if (state.editImages.length >= 4) { setStatus("editStatus", "max 4 images", "err"); return; }
         const dataUrl = await readFileAsDataURL(f);
         state.editImages.push({ b64: dataUrl, name: f.name });
+        // A manually-uploaded image starts a fresh edit context, not a
+        // continuation of some earlier generation.
+        state.editConversationId = null;
         renderEditThumbs();
       } else {
         const dataUrl = await readFileAsDataURL(f);
@@ -284,7 +290,11 @@ async function generate(prompt, opts) {
     body: JSON.stringify(body),
   });
   if (status === 200) {
-    return { paths: data.paths || [], files: data.files || [] };
+    return {
+      paths: data.paths || [],
+      files: data.files || [],
+      conversationId: data.conversation_id || "",
+    };
   }
   throw new Error(data.error || `HTTP ${status}`);
 }
@@ -331,6 +341,9 @@ function makeCard(rec) {
       }))
       .then((dataUrl) => {
         state.editImages = [{ b64: dataUrl, name: "last-result.png" }];
+        // "Edit this" continues the generation that produced this card (the
+        // server silently falls back to a fresh one if it rejects the id).
+        state.editConversationId = rec.conversationId || null;
         renderEditThumbs();
         $("tab-image").hidden = true;
         $("tab-edit").hidden = false;
@@ -355,7 +368,11 @@ function showResult(res, statusElId) {
   const grid = document.createElement("div");
   grid.className = "hist-grid";
   res.paths.forEach((p, i) => {
-    grid.appendChild(makeCard({ fileUrl: res.files[i] || "", path: p }));
+    grid.appendChild(makeCard({
+      fileUrl: res.files[i] || "",
+      path: p,
+      conversationId: res.conversationId || "",
+    }));
   });
   container.appendChild(grid);
 }
@@ -401,6 +418,9 @@ $("editBtn").addEventListener("click", async () => {
       n: 1,
       thinking: $("editThinking").value,
       enhance: $("editEnhance").checked,
+      // Continue the conversation that "Edit this" loaded (if any). The server
+      // falls back to a fresh generation on rejection - invisible here.
+      conversation_id: state.editConversationId || undefined,
     });
     showResult(res, "editStatus");
     saveHistory(res);
@@ -420,6 +440,7 @@ async function saveHistory(res, prompt) {
       path: p,
       fileUrl: res.files[i] || "",
       prompt: prompt || "",
+      conversationId: res.conversationId || "",
       ts: Date.now(),
     }));
     const merged = [...entries, ...history].slice(0, 60);
@@ -443,7 +464,12 @@ async function renderHistory() {
       return;
     }
     history.forEach((h) => {
-      grid.appendChild(makeCard({ fileUrl: h.fileUrl || "", path: h.path, prompt: h.prompt }));
+      grid.appendChild(makeCard({
+        fileUrl: h.fileUrl || "",
+        path: h.path,
+        prompt: h.prompt,
+        conversationId: h.conversationId || "",
+      }));
     });
   } catch (e) {
     // storage unavailable

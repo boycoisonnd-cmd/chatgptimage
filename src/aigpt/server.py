@@ -54,7 +54,8 @@ def generate_image(prompt: str, aspect: str = "16:9", n: int = 1,
                    brand_colors: list[str] | None = None,
                    reserve_corner: str | None = None,
                    quality: Quality = "auto",
-                   transparent: bool = False) -> dict:
+                   transparent: bool = False,
+                   conversation_id: str | None = None) -> dict:
     """Generate or edit image(s), returning the exact ABSOLUTE file path(s)
     saved, e.g. {"paths": ["C:/.../img-....png"]}. Callers should use the
     returned path directly and never re-generate to "find" the file.
@@ -82,7 +83,14 @@ def generate_image(prompt: str, aspect: str = "16:9", n: int = 1,
 
     brand_colors (list of hex like ['#10B981']) forces a palette; reserve_corner
     (e.g. 'top-left') keeps a corner clear for a logo and bans model-drawn
-    logos/text. With enhance=False these still apply via the offline template."""
+    logos/text. With enhance=False these still apply via the offline template.
+
+    conversation_id continues an earlier generation in the same conversation
+    (Phase 3 follow-up). Pass the conversation_id returned by a previous call
+    to refine it ("make it blue"). Requires n=1. If the backend rejects it,
+    the call automatically falls back to a fresh generation — but only when
+    reference images are attached; without refs it raises a clear error
+    instead of spending quota on a meaningless image."""
     from aigpt.engine.generate import generate_image as _gen
     from aigpt.engine.translate import sanitize_engine_error
     try:
@@ -91,7 +99,7 @@ def generate_image(prompt: str, aspect: str = "16:9", n: int = 1,
                    ref_image=ref_image, ref_images=ref_images, mode=mode,
                    brand_colors=_validate_brand_colors(brand_colors),
                    reserve_corner=reserve_corner, quality=quality,
-                   transparent=transparent)
+                   transparent=transparent, conversation_id=conversation_id)
     except ValueError:
         raise  # validation errors are already English, no CJK
     except Exception as exc:

@@ -159,6 +159,7 @@ def _cmd_gen(args: argparse.Namespace) -> int:
         ref_images=ref_images, mode=args.mode,
         brand_colors=brand_colors, reserve_corner=args.reserve_corner,
         quality=args.quality, transparent=args.transparent,
+        conversation_id=args.conversation_id,
     )
     paths = list(res.paths)
 
@@ -224,6 +225,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="quality hint: auto, low, medium, high")
     g.add_argument("--transparent", action="store_true",
                    help="append a transparent-background instruction")
+    g.add_argument("--conversation-id", dest="conversation_id", default=None,
+                   help="continue a previous generation (conversation_id printed "
+                        "by a prior run); on backend rejection it falls back to a "
+                        "fresh one when reference images are attached")
     _add_thinking_arg(g)
     _add_style_args(g)
     g.set_defaults(func=_cmd_gen, enhance=True)

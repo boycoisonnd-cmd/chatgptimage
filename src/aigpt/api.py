@@ -183,6 +183,7 @@ _ALLOWED_KEYS = {
     "mode": lambda v: str(v),
     "quality": lambda v: str(v),
     "transparent": lambda v: bool(v),
+    "conversation_id": lambda v: str(v).strip(),
 }
 
 
@@ -219,6 +220,10 @@ def parse_generate_request(body: bytes) -> dict[str, Any]:
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError('missing "prompt" string')
     out["prompt"] = prompt
+    # An empty conversation_id means "no follow-up" - treat as absent so the
+    # engine takes the fresh-generation path instead of rejecting an "".
+    if not out.get("conversation_id"):
+        out.pop("conversation_id", None)
     return out
 
 
@@ -230,6 +235,7 @@ _TYPE_HINTS = {
     "ref_images": "a list of https:// or base64 data:image URLs",
     "mode": "generate|edit|style", "quality": "auto|low|medium|high",
     "transparent": "a boolean",
+    "conversation_id": "a conversation id string",
 }
 
 
