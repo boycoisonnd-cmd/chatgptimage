@@ -53,6 +53,7 @@ set_pool_provider(
 _vendor_config.data["image_parallel_generation"] = False
 
 # I2I (especially 2–4 refs) routinely exceeds the vendor default 120s poll.
-# ChatGPT itself can sit in queue; 120s then surfaces as "生图超时" even when
-# the conversation exists. Bump at runtime — no _vendor / config.json edit.
+# ChatGPT itself can sit in queue; 120s then surfaces as an image-generation
+# timeout even when the conversation exists. Bump at runtime — no _vendor /
+# config.json edit.
 _vendor_config.data["image_poll_timeout_secs"] = 300

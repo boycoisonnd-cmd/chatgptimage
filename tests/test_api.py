@@ -51,6 +51,23 @@ def test_exception_mapping_poll_timeout_is_504():
     assert "生图超时" not in body["error"]
 
 
+def test_exception_mapping_strips_chinese_from_upstream():
+    """Vendor/upstream errors with Chinese text are sanitized to English at the API edge."""
+    cls = type("ImageGenerationError", (RuntimeError,), {})
+    status, body = api.build_response_from_exception(cls("上游生成失败 upstream failure"))
+    assert status == 502
+    assert "upstream failure" in body["error"]
+    assert "上游" not in body["error"]
+
+
+def test_exception_mapping_chinese_only_returns_fallback():
+    cls = type("ImageGenerationError", (RuntimeError,), {})
+    status, body = api.build_response_from_exception(cls("ChatGPT 生图超时（已等待 120 秒）"))
+    assert status == 502
+    assert "image generation failed" in body["error"]
+    assert "生图超时" not in body["error"]
+
+
 def test_exception_mapping_generic_runtime_error_is_502():
     exc = RuntimeError("image generation produced no images")
     assert api.build_response_from_exception(exc) == (502, {"error": str(exc)})

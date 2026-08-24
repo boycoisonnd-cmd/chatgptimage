@@ -27,6 +27,7 @@ from aigpt.engine.edit_prompt import apply_mode_overlay
 from aigpt.engine.enhance import enhance_prompt, template_enhance
 from aigpt.engine.refs import RefImage, load_ref_images
 from aigpt.engine.result import GenerateResult
+from aigpt.engine.translate import sanitize_engine_error
 from aigpt.sizes import resolve_size
 from aigpt.types import Mode, Quality, Style, Thinking
 from services.protocol.conversation import (
@@ -202,7 +203,9 @@ def generate_image(
         image_thinking.set_thinking("auto")
 
     if not saved:
+        msg = sanitize_engine_error(message,
+                                    fallback="image generation produced no images")
         raise RuntimeError(
-            f"image generation produced no images. Engine said: {message or '(no message)'}"
+            f"image generation produced no images. Engine said: {msg}"
         )
     return GenerateResult.from_list(saved, conversation_id)

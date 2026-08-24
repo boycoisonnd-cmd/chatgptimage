@@ -84,12 +84,21 @@ def generate_image(prompt: str, aspect: str = "16:9", n: int = 1,
     (e.g. 'top-left') keeps a corner clear for a logo and bans model-drawn
     logos/text. With enhance=False these still apply via the offline template."""
     from aigpt.engine.generate import generate_image as _gen
-    res = _gen(prompt, aspect=aspect, n=_validate_n(n), out_dir=out_dir,
-               enhance=enhance, style=style, thinking=thinking,
-               ref_image=ref_image, ref_images=ref_images, mode=mode,
-               brand_colors=_validate_brand_colors(brand_colors),
-               reserve_corner=reserve_corner, quality=quality,
-               transparent=transparent)
+    from aigpt.engine.translate import sanitize_engine_error
+    try:
+        res = _gen(prompt, aspect=aspect, n=_validate_n(n), out_dir=out_dir,
+                   enhance=enhance, style=style, thinking=thinking,
+                   ref_image=ref_image, ref_images=ref_images, mode=mode,
+                   brand_colors=_validate_brand_colors(brand_colors),
+                   reserve_corner=reserve_corner, quality=quality,
+                   transparent=transparent)
+    except ValueError:
+        raise  # validation errors are already English, no CJK
+    except Exception as exc:
+        # Strip CJK from vendor/upstream messages so the MCP client never sees
+        # e.g. "ChatGPT 生图超时…".
+        raise RuntimeError(sanitize_engine_error(str(exc),
+                                                 fallback="image generation failed")) from exc
     return {
         "paths": [os.path.abspath(p) for p in res.paths],
         "conversation_id": res.conversation_id,

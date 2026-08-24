@@ -169,6 +169,21 @@ def test_conversation_id_captured():
     assert isinstance(res.paths, tuple)
 
 
+def test_chinese_engine_message_stripped_from_error():
+    """A Chinese message from the engine must not reach the caller as-is."""
+    from aigpt.engine.generate import generate_image
+
+    with patch("aigpt.engine.generate.encode_images",
+               side_effect=lambda imgs: ["enc"]), \
+         patch("aigpt.engine.generate.stream_image_outputs_with_pool",
+               return_value=iter([_FakeImgOutput(kind="message",
+                                                 text="ChatGPT 生图超时（已等待 120 秒）")])), \
+         patch("aigpt.engine.generate._ref_dimensions", return_value=(1, 1)), \
+         pytest.raises(RuntimeError, match="image generation produced no images") as ei:
+        generate_image("x", ref_images=[_DATA_URL], enhance=False)
+    assert "生图超时" not in str(ei.value)
+
+
 def test_source_aspect_uses_first_ref_dimensions():
     captured = {}
 

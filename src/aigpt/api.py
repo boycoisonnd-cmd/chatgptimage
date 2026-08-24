@@ -130,7 +130,9 @@ def build_response_from_exception(exc: BaseException) -> tuple[int, dict]:
                      "queue is busy. Retry in a minute.",
         }
     if isinstance(exc, RuntimeError) or type(exc).__name__ in _UPSTREAM_ERROR_NAMES:
-        return 502, {"error": str(exc)}
+        from aigpt.engine.translate import sanitize_engine_error
+        return 502, {"error": sanitize_engine_error(str(exc),
+                                                    fallback="image generation failed")}
     return 500, {"error": "internal error"}
 
 
