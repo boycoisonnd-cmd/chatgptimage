@@ -256,7 +256,11 @@ def test_token_is_per_server_instance():
 # ------------------------------------------------------------ session primitives
 
 def test_start_login_session_on_port_0(monkeypatch):
-    from aigpt.login_wait import start_login_session, login_session_status, stop_login_session
+    from aigpt.login_wait import (
+        login_session_status,
+        start_login_session,
+        stop_login_session,
+    )
     # Monkeypatch the pending-file path so oauth_login.complete won't fail.
     monkeypatch.setattr(login_wait.oauth_login, "complete",
                         lambda url: {"email": "a@b.c", "access_token": "t"})
@@ -285,7 +289,11 @@ def test_stop_releases_port(monkeypatch):
 
 
 def test_session_error_state(monkeypatch):
-    from aigpt.login_wait import start_login_session, login_session_status, stop_login_session
+    from aigpt.login_wait import (
+        login_session_status,
+        start_login_session,
+        stop_login_session,
+    )
     session = start_login_session("https://auth.example/auth", port=0)
     try:
         session.result_q.put_nowait(RuntimeError("oops"))

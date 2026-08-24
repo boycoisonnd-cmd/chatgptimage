@@ -9,7 +9,7 @@ const MAX_REF_BYTES = 4 * 1024 * 1024; // 4 MiB upload cap (base64 grows ~1.37x)
 const $ = (id) => document.getElementById(id);
 const state = {
   refImage: null,        // { b64, name } for the IMAGE tab
-  editImage: null,       // { b64, name } for the EDIT tab
+  editImages: [],        // Array<{ b64, name }> for the EDIT tab (max 4)
   accounts: [],
   serverOn: false,
 };
@@ -189,34 +189,75 @@ function readFileAsDataURL(file) {
   });
 }
 
+function renderEditThumbs() {
+  const container = $("editThumbs");
+  container.textContent = "";
+  state.editImages.forEach((img, i) => {
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    const p = document.createElement("img");
+    p.src = img.b64;
+    p.alt = img.name;
+    thumb.appendChild(p);
+    const label = document.createElement("span");
+    label.className = "thumb-label";
+    label.textContent = img.name;
+    thumb.appendChild(label);
+    const rm = document.createElement("button");
+    rm.className = "btn tiny ghost";
+    rm.textContent = "✕";
+    rm.addEventListener("click", () => {
+      state.editImages.splice(i, 1);
+      renderEditThumbs();
+      if (!state.editImages.length) {
+        $("dropzoneEdit").style.display = "block";
+      }
+    });
+    thumb.appendChild(rm);
+    container.appendChild(thumb);
+  });
+  $("dropzoneEdit").style.display = state.editImages.length >= 4 ? "none" : "block";
+}
+
 function wireDropzone(dzId, fileId, destKey) {
   const dz = $(dzId), file = $(fileId);
+  const isEdit = destKey === "editImages";
   dz.addEventListener("click", () => file.click());
   dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("drag"); });
   dz.addEventListener("dragleave", () => dz.classList.remove("drag"));
   dz.addEventListener("drop", (e) => {
     e.preventDefault();
     dz.classList.remove("drag");
-    if (e.dataTransfer.files[0]) file.files = e.dataTransfer.files;
-    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    const files = e.dataTransfer.files;
+    for (let i = 0; i < files.length; i++) handleFile(files[i]);
   });
-  file.addEventListener("change", () => { if (file.files[0]) handleFile(file.files[0]); });
+  file.addEventListener("change", () => {
+    for (let i = 0; i < file.files.length; i++) handleFile(file.files[i]);
+    file.value = ""; // allow re-uploading the same file
+  });
 
   async function handleFile(f) {
     try {
-      const dataUrl = await readFileAsDataURL(f);
-      state[destKey] = { b64: dataUrl, name: f.name };
-      dz.textContent = ""; // clear placeholder/drop hint
-      const img = document.createElement("img");
-      img.className = "preview";
-      img.src = dataUrl;
-      img.alt = "reference";
-      const label = document.createElement("span");
-      label.className = "dz-label";
-      label.textContent = `${f.name} — click to replace`;
-      dz.append(img, label);
+      if (isEdit) {
+        if (state.editImages.length >= 4) { setStatus("editStatus", "max 4 images", "err"); return; }
+        const dataUrl = await readFileAsDataURL(f);
+        state.editImages.push({ b64: dataUrl, name: f.name });
+        renderEditThumbs();
+      } else {
+        const dataUrl = await readFileAsDataURL(f);
+        state[destKey] = { b64: dataUrl, name: f.name };
+        dz.textContent = "";
+        const img = document.createElement("img");
+        img.className = "preview";
+        img.src = dataUrl;
+        img.alt = "reference";
+        const label = document.createElement("span");
+        label.className = "dz-label";
+        label.textContent = `${f.name} — click to replace`;
+        dz.append(img, label);
+      }
     } catch (err) {
-      setStatus(destKey === "refImage" ? "status" : "editStatus", err.message, "err");
+      setStatus(isEdit ? "editStatus" : "status", err.message, "err");
     }
   }
 }
@@ -274,6 +315,36 @@ function makeCard(rec) {
   meta.className = "meta";
   meta.textContent = (rec.prompt || rec.path.split(/[\\/]/).pop() || "").slice(0, 40);
   card.appendChild(meta);
+  const editBtn = document.createElement("button");
+  editBtn.className = "btn tiny";
+  editBtn.textContent = "Edit this";
+  editBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    // Load the generated image back into the EDIT tab as its source.
+    fetch(API + rec.fileUrl)
+      .then((r) => r.blob())
+      .then((blob) => new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.onerror = rej;
+        fr.readAsDataURL(blob);
+      }))
+      .then((dataUrl) => {
+        state.editImages = [{ b64: dataUrl, name: "last-result.png" }];
+        renderEditThumbs();
+        $("tab-image").hidden = true;
+        $("tab-edit").hidden = false;
+        $("tab-chatgpt").hidden = true;
+        $("view-history").hidden = true;
+        document.querySelectorAll(".tab").forEach((t) =>
+          t.classList.toggle("active", t.dataset.tab === "edit"));
+        $("editPrompt").focus();
+      })
+      .catch(() => {
+        setStatus("status", "could not load image for editing", "err");
+      });
+  });
+  card.appendChild(editBtn);
   return card;
 }
 
@@ -301,6 +372,9 @@ $("genBtn").addEventListener("click", async () => {
       n: Number($("n").value),
       style: $("style").value,
       thinking: $("thinking").value,
+      // A reference on the IMAGE tab is a STYLE reference: match the look,
+      // don't copy content. The EDIT tab sends mode="edit" for real edits.
+      mode: state.refImage ? "style" : "generate",
       ref_image: state.refImage ? state.refImage.b64 : undefined,
     });
     showResult(res, "status");
@@ -313,7 +387,7 @@ $("genBtn").addEventListener("click", async () => {
 });
 
 $("editBtn").addEventListener("click", async () => {
-  if (!state.editImage) { setStatus("editStatus", "upload an image to edit first", "err"); return; }
+  if (!state.editImages.length) { setStatus("editStatus", "upload an image to edit first", "err"); return; }
   const prompt = $("editPrompt").value.trim();
   if (!prompt) { setStatus("editStatus", "write an edit instruction", "err"); return; }
   const btn = $("editBtn");
@@ -321,10 +395,12 @@ $("editBtn").addEventListener("click", async () => {
   setStatus("editStatus", "editing… (1–4 min)");
   try {
     const res = await generate(prompt, {
-      aspect: "1:1",
+      mode: "edit",
+      ref_images: state.editImages.map((i) => i.b64),
+      aspect: $("editAspect").value,
       n: 1,
-      ref_image: state.editImage.b64,
-      enhance: true,
+      thinking: $("editThinking").value,
+      enhance: $("editEnhance").checked,
     });
     showResult(res, "editStatus");
     saveHistory(res);
@@ -414,7 +490,7 @@ $("fAccount").addEventListener("click", async () => {
 // ------------------------------------------------------------------ init
 
 wireDropzone("dropzone", "refFile", "refImage");
-wireDropzone("dropzoneEdit", "editFile", "editImage");
+wireDropzone("dropzoneEdit", "editFile", "editImages");
 refreshServer();
 refreshAccounts();
 setInterval(() => { refreshServer(); }, 15000);

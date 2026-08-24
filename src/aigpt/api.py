@@ -36,7 +36,7 @@ from aigpt.auth import oauth_login, store
 from aigpt.auth.pool import NoQuotaError
 from aigpt.console import force_utf8
 
-_MAX_BODY = 4 * 1024 * 1024  # 4 MiB: reference images arrive as base64 data: URLs
+_MAX_BODY = 16 * 1024 * 1024  # 16 MiB: reference images arrive as base64 data: URLs
 _MAX_IMAGES = 4
 _MAX_REGISTRY = 32  # evict oldest entries once the in-memory file map grows past this
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -153,6 +153,13 @@ def _decode_data_url(value: Any) -> str:
     return value
 
 
+def _decode_data_url_list(value: Any) -> list[str]:
+    """Coerce a `ref_images` list: every element must be an https or data: URL."""
+    if not isinstance(value, list) or not value:
+        raise ValueError("ref_images must be a non-empty list of URLs")
+    return [_decode_data_url(v) for v in value]
+
+
 # Params accepted by /generate_image, with per-key coercers (None = passthrough).
 _ALLOWED_KEYS = {
     "prompt": lambda v: str(v).strip(),
@@ -165,6 +172,10 @@ _ALLOWED_KEYS = {
     "brand_colors": lambda v: [str(c) for c in v],
     "reserve_corner": None,
     "ref_image": _decode_data_url,
+    "ref_images": _decode_data_url_list,
+    "mode": lambda v: str(v),
+    "quality": lambda v: str(v),
+    "transparent": lambda v: bool(v),
 }
 
 
@@ -209,6 +220,9 @@ _TYPE_HINTS = {
     "out_dir": "a string", "enhance": "a boolean", "style": "a string",
     "thinking": "a string", "brand_colors": "a list of hex strings",
     "ref_image": "an https:// URL or base64 data:image URL",
+    "ref_images": "a list of https:// or base64 data:image URLs",
+    "mode": "generate|edit|style", "quality": "auto|low|medium|high",
+    "transparent": "a boolean",
 }
 
 
@@ -221,8 +235,11 @@ def _gen(payload: dict[str, Any]) -> dict:
     colors = _validate_brand_colors(payload.get("brand_colors"))
     payload["n"] = n
     payload["brand_colors"] = colors
-    paths = generate_image(**payload)
-    return {"paths": [os.path.abspath(p) for p in paths]}
+    res = generate_image(**payload)
+    return {
+        "paths": [os.path.abspath(p) for p in res.paths],
+        "conversation_id": res.conversation_id,
+    }
 
 
 def _accounts() -> dict:
@@ -386,7 +403,8 @@ class ApiServer(BaseHTTPRequestHandler):
                 return
             files = [_register_file(p) for p in result["paths"]]
             self._json(200, {"paths": result["paths"],
-                             "files": [f"/file?id={i}" for i in files]})
+                             "files": [f"/file?id={i}" for i in files],
+                             "conversation_id": result.get("conversation_id", "")})
         finally:
             sem.release()
 

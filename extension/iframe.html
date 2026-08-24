@@ -98,13 +98,37 @@
     <!-- EDIT tab -->
     <section id="tab-edit" hidden>
       <div class="dropzone" id="dropzoneEdit">
-        <input type="file" id="editFile" accept="image/png,image/jpeg,image/webp">
-        <span class="dz-label" id="dzLabelEdit">☁️ Upload an image to edit</span>
+        <input type="file" id="editFile" accept="image/png,image/jpeg,image/webp" multiple>
+        <span class="dz-label" id="dzLabelEdit">☁️ Upload 1 image to edit, or 2-4 to combine</span>
       </div>
+      <div class="thumbs" id="editThumbs"></div>
       <div class="field">
         <label for="editPrompt">Edit instruction</label>
         <textarea id="editPrompt" placeholder="e.g. make the background purple, add a logo top-left"></textarea>
       </div>
+      <div class="row2">
+        <div class="field">
+          <label for="editAspect">Aspect</label>
+          <select id="editAspect">
+            <option value="source">source</option>
+            <option value="16:9">16:9</option>
+            <option value="1:1">1:1</option>
+            <option value="3:4">3:4</option>
+            <option value="4:3">4:3</option>
+            <option value="9:16">9:16</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="editThinking">Thinking</label>
+          <select id="editThinking">
+            <option value="auto">auto</option>
+            <option value="standard">standard</option>
+            <option value="extended">extended</option>
+            <option value="max">max</option>
+          </select>
+        </div>
+      </div>
+      <label class="chk"><input type="checkbox" id="editEnhance"> enhance</label>
       <button class="btn primary btn-block" id="editBtn">🛠 EDIT IMAGE</button>
       <div class="status" id="editStatus"></div>
     </section>

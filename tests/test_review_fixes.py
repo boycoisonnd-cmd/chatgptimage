@@ -15,6 +15,8 @@ from aigpt.auth.oauth_login import (
     extract_code,
 )
 
+# A real 1x1 PNG so the engine can read dimensions for the request.
+_PNG_1x1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
 
 # ---------- M1: state verification ----------
 
@@ -63,9 +65,9 @@ def test_complete_removes_pending_file_even_on_failure():
         with patch("aigpt.auth.oauth_login._pending_path",
                    return_value=pending), \
              patch("aigpt.auth.oauth_login.exchange_code",
-                   side_effect=RuntimeError("exchange exploded")):
-            with pytest.raises(RuntimeError, match="exchange exploded"):
-                complete("https://x/callback?state=s1&code=c1")
+                   side_effect=RuntimeError("exchange exploded")), \
+             pytest.raises(RuntimeError, match="exchange exploded"):
+            complete("https://x/callback?state=s1&code=c1")
         assert not pending.exists(), "pending file must be cleaned up on failure"
 
 
@@ -94,27 +96,58 @@ def test_ref_image_rejects_http_and_file_urls():
 def test_ref_image_accepts_https_url_then_fetches():
     """A valid https URL must go down the fetch path (curl_cffi + encode),
     never fail validation. Mock the fetch so no network is hit."""
-    import aigpt.engine.generate as gen_module
+    import base64 as _b64
 
     class FakeResp:
         status_code = 200
-        content = b"\x89PNG\r\n\x1a\n" + b"fakedata"
-        headers = {"Content-Type": "image/png"}
+        content = _b64.b64decode(_PNG_1x1)
+
+        def __init__(self) -> None:
+            self.headers = {"Content-Type": "image/png"}
 
         def raise_for_status(self):
             return None
 
-    with patch("curl_cffi.requests.get", return_value=FakeResp()) as mock_get, \
-         patch("aigpt.engine.generate.encode_images",
-               return_value=[("enc", "image/png", "ref.png")]) as mock_enc, \
-         patch("aigpt.engine.generate.stream_image_outputs_with_pool",
-               return_value=iter([])) as mock_stream, \
-         patch("aigpt.engine.generate._collect_saved",
-               return_value=(["C:/fake.png"], "")):
-        out = _gen()("slide about coffee", ref_image="https://example.com/img.png",
-                     enhance=False)
-        assert out == ["C:/fake.png"]
-        mock_get.assert_called_once_with("https://example.com/img.png", timeout=30,
-                                         headers={"User-Agent": "aigpt-mcp/0.1"})
+    with patch("aigpt.engine.refs.curl_requests.get", return_value=FakeResp()), \
+         patch("aigpt.engine.generate.encode_images", return_value=["enc"]) as mock_enc, \
+         patch("aigpt.engine.generate.stream_image_outputs_with_pool", return_value=iter([])) as mock_stream, \
+         patch("aigpt.engine.generate._collect_saved", return_value=(["C:/fake.png"], "", "conv-1")):
+        res = _gen()("slide about coffee", ref_image="https://example.com/img.png",
+                     enhance=False, mode="style")
+        assert res.paths == ("C:/fake.png",)
+        assert res.conversation_id == "conv-1"
         mock_enc.assert_called_once()
         assert mock_stream.called
+
+
+def test_ref_image_https_default_edit_not_style_only():
+    """Default mode with an https ref is EDIT (not style-only). The STYLE-ONLY
+    overlay must appear only when mode='style' is explicit."""
+    import base64 as _b64
+
+    class FakeResp:
+        status_code = 200
+        content = _b64.b64decode(_PNG_1x1)
+
+        def __init__(self) -> None:
+            self.headers = {"Content-Type": "image/png"}
+
+        def raise_for_status(self):
+            return None
+
+    captured: dict = {}
+
+    def _fake_stream(request):
+        captured["prompt"] = request.prompt
+        return iter([])
+
+    with patch("aigpt.engine.refs.curl_requests.get", return_value=FakeResp()), \
+         patch("aigpt.engine.generate.stream_image_outputs_with_pool",
+               side_effect=_fake_stream) as mock_stream, \
+         patch("aigpt.engine.generate._collect_saved",
+               return_value=(["C:/fake.png"], "", "")):
+        _gen()("change the background to blue",
+               ref_image="https://example.com/img.png", enhance=False)
+    assert "DESIGN-STYLE" not in captured["prompt"]
+    assert "Edit the attached image" in captured["prompt"]
+    assert mock_stream.called

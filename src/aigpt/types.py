@@ -16,3 +16,10 @@ Thinking = Literal["auto", "standard", "extended", "max"]
 
 # Slide design treatment applied by the prompt enhancer.
 Style = Literal["auto", "slide", "fintech"]
+
+# Image generation mode: generate (text-to-image), edit (reference + instruction),
+# style (match reference style only).
+Mode = Literal["generate", "edit", "style"]
+
+# Generation quality (sent as Chinese hint to picture_v2).
+Quality = Literal["auto", "low", "medium", "high"]

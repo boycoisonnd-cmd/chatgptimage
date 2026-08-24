@@ -117,12 +117,15 @@ def test_gen_validates_brand_colors_and_raises():
 
 def test_gen_validates_n_and_passes_to_engine(monkeypatch):
     from aigpt.engine import generate as engine
+    from aigpt.engine.result import GenerateResult
 
     captured = {}
     monkeypatch.setattr(engine, "generate_image",
-                        lambda **kw: captured.update(kw) or ["C:/out/img.png"])
+                        lambda **kw: captured.update(kw)
+                        or GenerateResult.from_list(["C:/out/img.png"], "conv-9"))
     got = api._gen({"prompt": "cat", "n": 2, "brand_colors": ["#10B981"]})
     assert got["paths"] == ["C:\\out\\img.png"]  # abspath is OS-specific
+    assert got["conversation_id"] == "conv-9"
     assert captured["n"] == 2
     assert captured["brand_colors"] == ["#10B981"]
 
@@ -219,6 +222,7 @@ def test_login_start_starts_session(monkeypatch, tmp_path):
 
 def test_login_start_idempotent_while_waiting(monkeypatch):
     import time
+
     import aigpt.login_wait as login_wait_mod
     _reset_login_state()
     class _FakeSess:
@@ -258,6 +262,7 @@ def test_login_poll_idle_without_session():
 
 def test_login_poll_done_reloads_and_clears(monkeypatch):
     import time
+
     import aigpt.login_wait as login_wait_mod
     from aigpt.engine import account_wiring as pool_mod
     _reset_login_state()
@@ -284,6 +289,7 @@ def test_login_poll_done_reloads_and_clears(monkeypatch):
 
 def test_login_poll_error_clears(monkeypatch):
     import time
+
     import aigpt.login_wait as login_wait_mod
     _reset_login_state()
     class _FakeSess:
@@ -339,8 +345,8 @@ def test_delete_account_not_found(monkeypatch, tmp_path):
 
 
 def test_delete_account_removes_and_reloads(monkeypatch, tmp_path):
+    from aigpt.auth import store, tokens
     from aigpt.engine import account_wiring as pool_mod
-    from aigpt.auth import tokens, store
     monkeypatch.setattr(tokens, "_config_dir", lambda: tmp_path)
     store.upsert_account({"user_id": "u1", "email": "a@b", "access_token": "t1"})
     reloaded = []

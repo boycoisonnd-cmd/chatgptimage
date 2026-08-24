@@ -11,9 +11,11 @@ from typing import get_args
 
 from aigpt.cli_accounts import _cmd_accounts, _cmd_logout
 from aigpt.console import force_utf8
-from aigpt.types import Style, Thinking
+from aigpt.types import Mode, Quality, Style, Thinking
 
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
+_MAX_REFS = 4
 
 
 def _add_thinking_arg(p: argparse.ArgumentParser) -> None:
@@ -90,8 +92,50 @@ def _cmd_login(args: argparse.Namespace) -> int:
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
+def _local_to_data_url(path: str) -> str:
+    """Read a local image file and return a data:image URL (CLI-only privilege).
+
+    The engine/HTTP layer stays URL-strict; only the CLI converts local files,
+    in-process, to the exact data: URL the engine accepts.
+    """
+    import base64 as _b64
+    import mimetypes as _mime
+
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"ref file not found: {path}")
+    ctype, _ = _mime.guess_type(path)
+    if ctype in ("image/png", "image/jpeg", "image/webp"):
+        mime = ctype
+    else:
+        raise ValueError(f"unsupported ref image type {ctype!r} for {path!r} "
+                         f"(use png/jpeg/webp)")
+    with open(path, "rb") as f:
+        raw = f.read()
+    return f"data:{mime};base64,{_b64.b64encode(raw).decode('ascii')}"
+
+
+def _resolve_refs(refs: list[str] | None) -> list[str]:
+    """Convert CLI ref specs to data: URLs / https URLs, validating each."""
+    if not refs:
+        return []
+    if len(refs) > _MAX_REFS:
+        print(f"error: too many --ref ({len(refs)} > {_MAX_REFS})", file=sys.stderr)
+        sys.exit(2)
+    out: list[str] = []
+    for ref in refs:
+        if ref.startswith("https://"):
+            out.append(ref)
+            continue
+        try:
+            out.append(_local_to_data_url(ref))
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            sys.exit(2)
+    return out
+
+
 def _cmd_gen(args: argparse.Namespace) -> int:
-    """Generate image(s) ONCE and print the exact absolute path(s) saved.
+    """Generate/edit image(s) ONCE and print the exact absolute path(s) saved.
 
     Reliability fix: if --out looks like a file (single image), the result is
     moved to exactly that path, so callers never have to guess where the file
@@ -103,15 +147,20 @@ def _cmd_gen(args: argparse.Namespace) -> int:
         return 2
     brand_colors = [args.accent] if args.accent else None
 
+    ref_images = _resolve_refs(args.ref_images)
+
     out = args.out
     as_file = args.n == 1 and os.path.splitext(out)[1].lower() in _IMAGE_EXTS
     work_dir = tempfile.mkdtemp(prefix="aigpt_") if as_file else out
 
-    paths = generate_image(
+    res = generate_image(
         args.prompt, aspect=args.aspect, n=args.n, out_dir=work_dir,
         enhance=args.enhance, style=args.style, thinking=args.thinking,
+        ref_images=ref_images, mode=args.mode,
         brand_colors=brand_colors, reserve_corner=args.reserve_corner,
+        quality=args.quality, transparent=args.transparent,
     )
+    paths = list(res.paths)
 
     if as_file:
         if paths:
@@ -123,6 +172,8 @@ def _cmd_gen(args: argparse.Namespace) -> int:
 
     for p in paths:
         print(os.path.abspath(p))
+    if res.conversation_id:
+        print(f"conversation_id={res.conversation_id}", file=sys.stderr)
     return 0 if paths else 1
 
 
@@ -149,9 +200,10 @@ def main(argv: list[str] | None = None) -> int:
     lo.add_argument("--all", dest="all_accounts", action="store_true", help="remove ALL accounts")
     lo.set_defaults(func=_cmd_logout)
 
-    g = sub.add_parser("gen", help="generate image(s); --out FILE.png for one exact file, or --out DIR")
+    g = sub.add_parser("gen", help="generate/edit image(s); --out FILE.png for one exact file, or --out DIR")
     g.add_argument("prompt")
-    g.add_argument("--aspect", default="16:9")
+    g.add_argument("--aspect", default="16:9",
+                   help="16:9, 1:1, 3:4, 4:3, 9:16, WxH, or 'source' (ratio of first ref)")
     g.add_argument("--n", type=int, default=1, choices=range(1, 5),
                    help="number of images (1-4)")
     g.add_argument("--out", default="out",
@@ -160,6 +212,18 @@ def main(argv: list[str] | None = None) -> int:
                    help="skip auto-expanding the prompt via the ChatGPT text path")
     g.add_argument("--style", default="auto", choices=list(get_args(Style)),
                    help="'slide' = clean editorial; 'fintech' = light-blue dashboard")
+    g.add_argument("--ref", dest="ref_images", action="append", default=None,
+                   metavar="PATH_OR_HTTPS",
+                   help="reference image: a LOCAL file path (PNG/JPEG/WebP) or a "
+                        "public https:// URL. Repeat for up to 4. 1 ref = edit in "
+                        "place; 2+ = compose. Use --mode style for look-alike only.")
+    g.add_argument("--mode", default=None, choices=list(get_args(Mode)),
+                   help="generate (text only), edit (ref + instruction, default when "
+                        "--ref given), style (match ref look only)")
+    g.add_argument("--quality", default="auto", choices=list(get_args(Quality)),
+                   help="quality hint: auto, low, medium, high")
+    g.add_argument("--transparent", action="store_true",
+                   help="append a transparent-background instruction")
     _add_thinking_arg(g)
     _add_style_args(g)
     g.set_defaults(func=_cmd_gen, enhance=True)

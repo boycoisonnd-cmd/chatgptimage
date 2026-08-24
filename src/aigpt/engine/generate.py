@@ -1,6 +1,6 @@
 """Drive the vendored ChatGPT image-gen engine with our single-account token.
 
-Entry: generate_image(prompt, aspect, n, out_dir) -> list of saved PNG paths.
+Entry: generate_image(prompt, aspect, n, out_dir) -> GenerateResult.
 """
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ import base64
 import os
 import sys
 import time
-from urllib.parse import urlparse
+from io import BytesIO
+
+from PIL import Image
 
 # Make the vendored `services.*` / `utils.*` importable; this also sets the
 # vendored config's required auth-key env var (single source: see _vendor_path).
@@ -21,9 +23,12 @@ from aigpt.engine import image_thinking
 # accessors used here (get_pool) and re-exported for the deck layer
 # (pool_exhausted_reset).
 from aigpt.engine.account_wiring import get_pool, pool_exhausted_reset  # noqa: F401
+from aigpt.engine.edit_prompt import apply_mode_overlay
 from aigpt.engine.enhance import enhance_prompt, template_enhance
+from aigpt.engine.refs import RefImage, load_ref_images
+from aigpt.engine.result import GenerateResult
 from aigpt.sizes import resolve_size
-from aigpt.types import Style, Thinking
+from aigpt.types import Mode, Quality, Style, Thinking
 from services.protocol.conversation import (
     ConversationRequest,
     encode_images,
@@ -32,16 +37,28 @@ from services.protocol.conversation import (
 
 _SLIDE_STYLES = ("slide", "fintech")
 
+# A generation-only request must never silently swallow a reference image.
+_GENERATE_WITH_REFS_MSG = (
+    "mode='generate' does not accept ref_images; use mode='edit' or mode='style'"
+)
 
-def _collect_saved(outputs, n: int, out_dir: str) -> tuple[list[str], str]:
+
+def _ref_dimensions(ref: RefImage) -> tuple[int, int]:
+    """Return (width, height) of a decoded reference image (Pillow)."""
+    with Image.open(BytesIO(ref.data)) as img:
+        return img.size
+
+
+def _collect_saved(outputs, n: int, out_dir: str) -> tuple[list[str], str, str]:
     """Save up to `n` images from the engine output stream.
 
     The backend can return MORE variants than requested (n=1 has been seen to
     yield 2 results); cap at `n` so callers get exactly what they asked for.
-    Returns (saved_paths, last_message).
+    Returns (saved_paths, last_message, conversation_id).
     """
     saved: list[str] = []
     message = ""
+    conversation_id = ""
     for output in outputs:
         if output.kind == "message":
             message = output.text or message
@@ -58,9 +75,17 @@ def _collect_saved(outputs, n: int, out_dir: str) -> tuple[list[str], str]:
                 with open(path, "wb") as f:
                     f.write(base64.b64decode(b64))
                 saved.append(path)
+            conversation_id = conversation_id or (output.conversation_id or "")
         if len(saved) >= n:
             break
-    return saved, message
+    return saved, message, conversation_id
+
+
+def _resolve_mode(mode: str | None, refs: list[str] | None) -> Mode:
+    """Infer the generation mode when omitted: refs present -> edit, else generate."""
+    if mode:
+        return mode
+    return "edit" if refs else "generate"
 
 
 def generate_image(
@@ -71,42 +96,76 @@ def generate_image(
     enhance: bool = True,
     style: Style = "auto",
     ref_image: str | None = None,
+    ref_images: list[str] | None = None,
+    mode: Mode | None = None,
     thinking: Thinking = "auto",
     brand_colors: list[str] | None = None,
     reserve_corner: str | None = None,
-) -> list[str]:
+    quality: Quality = "auto",
+    transparent: bool = False,
+) -> GenerateResult:
     """Generate n image(s) and save them as PNGs. Returns saved file paths.
 
-    When enhance is True (default), the prompt is first expanded via the ChatGPT
-    text path (mirrors the web UI). style="slide" applies a clean editorial
-    presentation-slide aesthetic (light, restrained, one hero, short labels) —
-    best for slide content.
+    mode discriminator:
+      - "generate": pure text-to-image. Rejects ref_images.
+      - "edit": 1 image = edit in place (keep identity); 2-4 = compose.
+        enhance defaults to False (an enhance step would rewrite the edit
+        instruction into a text-to-image prompt).
+      - "style": match the reference's design style (palette/layout/type/mood);
+        content is NOT copied.
 
-    ref_image must be an https:// URL (public image) or a base64 data:image
-    URL (local uploads). The engine runs the image-EDIT path: the model SEES
-    the reference and matches its DESIGN STYLE only (palette, layout,
-    typography, mood) — its text/content is NOT copied. Local file paths are
-    rejected (H4): a URL parameter must never double as an arbitrary local
-    file read.
+    ref_image is an alias for a single ref_images[0]. ref_images entries must be
+    https:// URLs (public images) or base64 data:image URLs (local uploads).
+    Local file paths are rejected (H4): a URL parameter must never double as an
+    arbitrary local file read. CLI converts local files to data: URLs in-process.
 
     thinking selects reasoning effort before drawing: "auto" (default = ChatGPT's
     own default) or "standard"/"extended"/"max" (increasing). Higher effort
     improves rendered-text fidelity (e.g. Vietnamese diacritics) at the cost of
     speed.
 
+    quality is a hint to ChatGPT's image backend ("auto"/"low"/"medium"/"high").
+
+    transparent=True appends a transparent-background instruction (works best in
+    edit/style mode with a source image).
+
     brand_colors (list of hex) forces a palette; reserve_corner (e.g. "top-left")
-    keeps a corner clear for a logo and bans any model-drawn logo/text. With
-    enhance=False, supplying a slide style / brand_colors / reserve_corner routes
-    through the deterministic offline template (concise, no LLM bloat) instead of
-    being silently ignored.
+    keeps a corner clear for a logo and bans any model-drawn logo/text.
     """
-    size = resolve_size(aspect)
-    if enhance:
-        # Fix the account for THIS slide so enhance (text) and the image share it
-        # (raises NoQuotaError up-front if every account is exhausted).
+    if ref_image is not None and ref_images is not None:
+        raise ValueError(
+            "pass either ref_image or ref_images, not both (ref_image is an alias)")
+    if ref_image is not None:
+        ref_images = [ref_image]
+
+    refs = load_ref_images(ref_images) if ref_images else []
+
+    mode = _resolve_mode(mode, refs)
+
+    if mode == "generate" and refs:
+        raise ValueError(_GENERATE_WITH_REFS_MSG)
+
+    if refs:
+        dims = [_ref_dimensions(ref) for ref in refs]
+    else:
+        dims = None
+    size = resolve_size(aspect, dims)
+
+    if mode == "edit":
+        # Edit NEVER goes through the T2I text enhancer (it would rewrite the
+        # edit instruction into a text-to-image prompt). Apply the overlay and
+        # keep the user's instruction intact.
+        prompt = apply_mode_overlay("edit", prompt, len(refs), transparent)
+    elif mode == "style":
+        prompt = apply_mode_overlay("style", prompt, len(refs), transparent)
+    elif enhance:
+        # T2I enhance: fix the account for THIS image so enhance (text) and the
+        # image share it (raises NoQuotaError up-front if every account is exhausted).
         active = get_pool().current_token()
         prompt = enhance_prompt(prompt, style=style, brand_colors=brand_colors,
                                 reserve_corner=reserve_corner, access_token=active)
+        if transparent:
+            prompt = apply_mode_overlay("generate", prompt, 0, transparent)
         print(f"[enhance] prompt expanded to {len(prompt)} chars", file=sys.stderr)
     elif style in _SLIDE_STYLES or brand_colors or reserve_corner:
         prompt = template_enhance(prompt, style=style, brand_colors=brand_colors,
@@ -114,72 +173,17 @@ def generate_image(
         print(f"[template] styled prompt ({len(prompt)} chars, no LLM)", file=sys.stderr)
 
     encoded: list[str] | None = None
-    if ref_image:
-        # URL-strict (H4): only public https URLs, never a local path. The bytes
-        # are fetched over https (curl_cffi, same lib the engine uses) then
-        # encoded - a URL parameter can never double as a local file read.
-        # A base64 data:image URL (the extension's local uploads) is decoded
-        # directly - no fetch, no local-file access.
-        parsed = urlparse(ref_image)
-        if ref_image.startswith("data:image/"):
-            # data:image/<kind>;base64,<b64>
-            try:
-                kind, _, b64 = ref_image[len("data:"):].partition(";base64,")
-                data = base64.b64decode(b64, validate=True)
-            except (ValueError, TypeError) as exc:
-                raise ValueError(f"invalid ref_image data: URL: {exc}") from exc
-            if kind.startswith("image/"):
-                kind = kind.removeprefix("image/")
-            if kind not in ("png", "jpeg", "webp") or not data:
-                raise ValueError(
-                    "ref_image data: URL must be base64 png/jpeg/webp")
-            mime = {"png": "image/png", "jpeg": "image/jpeg",
-                    "webp": "image/webp"}[kind]
-        elif parsed.scheme != "https" or not parsed.netloc:
-            raise ValueError(
-                f"ref_image must be an https:// URL or data:image URL, "
-                f"got {ref_image!r} (local file paths are not supported)"
-            )
-        else:
-            # Strong STYLE-ONLY instruction so the model borrows the look, not the words.
-            prompt = (
-                prompt
-                + " QUAN TRỌNG: Ảnh đính kèm CHỈ là tham chiếu PHONG CÁCH THIẾT KẾ "
-                "(bảng màu, bố cục, kiểu chữ, không khí, hoạ tiết trang trí). TUYỆT ĐỐI "
-                "KHÔNG sao chép chữ, tiêu đề, hay nội dung cụ thể trong ảnh tham chiếu. "
-                "Hãy tạo slide MỚI với nội dung đã cho ở trên, mang phong cách giống ảnh "
-                "tham chiếu. (IMPORTANT: the attached image is a DESIGN-STYLE reference "
-                "ONLY — palette, layout, typography, mood, decorative motifs. Do NOT copy "
-                "any text, titles, or specific content from it; create a NEW slide with "
-                "the content above, styled like the reference.)"
-            )
-            from curl_cffi import requests as curl_requests
-
-            try:
-                resp = curl_requests.get(ref_image, timeout=30,
-                                         headers={"User-Agent": "aigpt-mcp/0.1"})
-                resp.raise_for_status()
-            except Exception as exc:
-                raise RuntimeError(
-                    f"failed to fetch ref_image {ref_image!r}: {exc}") from exc
-            data = resp.content
-            ctype = str(resp.headers.get("Content-Type") or "")
-            if ctype.startswith("image/jpeg"):
-                mime = "image/jpeg"
-            elif ctype.startswith("image/png"):
-                mime = "image/png"
-            elif ctype.startswith("image/webp"):
-                mime = "image/webp"
-            else:
-                mime = "image/jpeg"  # engine default
-        encoded = encode_images([(data, mime, "ref." + mime.split("/")[1])])
+    if refs:
+        encoded = encode_images(
+            [(ref.data, ref.mime, ref.name) for ref in refs]
+        )
 
     request = ConversationRequest(
         model="gpt-image-2",
         prompt=prompt,
         size=size,
         n=n,
-        quality="auto",
+        quality=quality,
         images=encoded,
         # response_format defaults to "b64_json" -> result dicts carry b64_json.
     )
@@ -191,7 +195,7 @@ def generate_image(
     try:
         # The pool wrapper calls account_service.get_available_access_token()
         # internally (our shim -> our token), so no manual backend construction.
-        saved, message = _collect_saved(
+        saved, message, conversation_id = _collect_saved(
             stream_image_outputs_with_pool(request), n, out_dir
         )
     finally:
@@ -201,4 +205,4 @@ def generate_image(
         raise RuntimeError(
             f"image generation produced no images. Engine said: {message or '(no message)'}"
         )
-    return saved
+    return GenerateResult.from_list(saved, conversation_id)
