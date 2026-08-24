@@ -79,10 +79,10 @@ def _prepare_image_conversation(self, prompt, requirements, model):
     try:
         return _orig_prepare(self, prompt, requirements, model)
     finally:
-        try:
-            del self.session.post  # drop the instance override -> class method
-        except AttributeError:
-            self.session.post = real_post
+        # Exact-restore, never `del`: with stacked interceptors a `del` would
+        # strip the OUTER interceptor too (it drops the instance override and
+        # re-exposes the class method, discarding what we captured).
+        self.session.post = real_post
 
 
 # Install once (idempotent across re-imports).
