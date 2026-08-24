@@ -103,15 +103,32 @@ uv run aigpt gen "slide: quarterly sales report" \
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `prompt` (positional) | *required* | Image description |
-| `--aspect` | `16:9` | `16:9`, `1:1`, `3:4`, `4:3`, `9:16`, or custom `WxH` |
+| `prompt` (positional) | *required* | Image description / edit instruction |
+| `--ref` | — | Reference image: a LOCAL file path (PNG/JPEG/WebP) or a public `https://` URL. Repeat for up to 4. 1 ref = edit in place; 2+ = compose |
+| `--mode` | inferred | `generate` / `edit` (default when `--ref` given) / `style` |
+| `--aspect` | `16:9` | `16:9`, `1:1`, `3:4`, `4:3`, `9:16`, custom `WxH`, or `source` |
 | `--n` | `1` | Number of images (1–4) |
 | `--out` | `out` | A FILE (`shot.png`) when `n=1`, otherwise a DIRECTORY |
 | `--style` | `auto` | `auto`, `slide` (clean editorial), `fintech` (light-blue dashboard) |
 | `--thinking` | `auto` | `auto`, `standard`, `extended`, `max` (higher = better text, slower) |
+| `--quality` | `auto` | `auto`, `low`, `medium`, `high` |
+| `--transparent` | *(off)* | Append a transparent-background instruction |
 | `--accent` | — | Brand accent `#RRGGBB` (applied to background/accents/text) |
 | `--reserve-corner` | — | `top-left`, `top-right`, `bottom-left`, `bottom-right` — keep clear for a logo; bans model-drawn logos/text |
 | `--no-enhance` | *(off)* | Skip prompt auto-expansion (with `--style`/`--accent`/`--reserve-corner`, uses the offline template instead) |
+
+Edit example:
+
+```bash
+# Edit one image in place (keep identity), source aspect
+uv run aigpt gen "make the background purple" --ref photo.png --out out/edited.png
+
+# Compose two images: person + scene
+uv run aigpt gen "put person into scene" --ref person.png --ref scene.png --out out/
+
+# Style-only: match the look, don't copy content
+uv run aigpt gen "slide about coffee" --ref poster.png --mode style --out out/
+```
 
 The exact absolute path of each saved PNG is printed — callers should use it directly and never re-generate to "find" the file.
 
@@ -142,17 +159,24 @@ Configure in your MCP client (e.g. Claude Desktop / VS Code):
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `prompt` | string | *required* | Image description |
-| `aspect` | string | `"16:9"` | `16:9`, `1:1`, `3:4`, `4:3`, `9:16`, or `WxH` |
+| `prompt` | string | *required* | Image description / edit instruction |
+| `mode` | string | inferred | `generate` (text only), `edit` (ref + instruction; default when refs given), `style` (match ref look only) |
+| `ref_image` | string | — | Alias for a single `ref_images[0]` |
+| `ref_images` | array of URL | — | 1–4 entries; each a public `https://` URL or `data:image/png|jpeg|webp;base64,…` |
+| `aspect` | string | `"16:9"` | `16:9`, `1:1`, `3:4`, `4:3`, `9:16`, `WxH`, or `"source"` (ratio of first ref) |
 | `n` | integer | `1` | Number of images (1–4; rejected outside this range) |
 | `out_dir` | string | `"out"` | Output directory (created if missing) |
-| `enhance` | boolean | `true` | Auto-expand the prompt via the ChatGPT text path |
+| `enhance` | boolean | `true` | Auto-expand the prompt via the ChatGPT text path (never used in `edit` mode) |
 | `style` | string | `"auto"` | `auto`, `slide`, `fintech` |
 | `thinking` | string | `"auto"` | `auto`, `standard`, `extended`, `max` |
+| `quality` | string | `"auto"` | `auto`, `low`, `medium`, `high` |
+| `transparent` | boolean | `false` | Append a transparent-background instruction |
 | `brand_colors` | array of hex | — | e.g. `["#10B981", "#7C3AED"]` (each must be `#RRGGBB`) |
 | `reserve_corner` | string | — | `top-left` / `top-right` / `bottom-left` / `bottom-right` |
 
-Returns `{"paths": ["C:/abs/path/img-<ts>-0.png", ...]}`.
+Returns `{"paths": ["C:/abs/path/img-<ts>-0.png", ...], "conversation_id": "..."}`.
+
+> **Mode semantics** (matches ChatGPT): `edit` with 1 ref keeps the subject/identity and applies the instruction; `edit` with 2–4 refs **composes** them (image 1 = primary subject unless the prompt says otherwise). `style` borrows palette/layout/type/mood only — content is **not** copied. Local file paths are rejected (H4); the CLI reads local files to `data:` URLs for you.
 
 ## HTTP REST API
 
@@ -175,27 +199,33 @@ Request body — all keys optional except `prompt`:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `prompt` | string | *required* | Image description |
-| `aspect` | string | `"16:9"` | `16:9`, `1:1`, `3:4`, `4:3`, `9:16`, or `WxH` |
+| `prompt` | string | *required* | Image description / edit instruction |
+| `mode` | string | inferred | `generate` / `edit` (default when refs given) / `style` |
+| `ref_image` | string | — | Alias for a single `ref_images[0]` |
+| `ref_images` | array of URL | — | 1–4 entries; each `https://` or `data:image/png|jpeg|webp;base64,…` |
+| `aspect` | string | `"16:9"` | `16:9`, `1:1`, `3:4`, `4:3`, `9:16`, `WxH`, or `"source"` |
 | `n` | integer | `1` | Number of images (1–4) |
 | `out_dir` | string | `"out"` | Output directory (created if missing) |
-| `enhance` | boolean | `true` | Auto-expand the prompt via the ChatGPT text path |
+| `enhance` | boolean | `true` | Auto-expand the prompt (never used in `edit` mode) |
 | `style` | string | `"auto"` | `auto`, `slide`, `fintech` |
 | `thinking` | string | `"auto"` | `auto`, `standard`, `extended`, `max` |
+| `quality` | string | `"auto"` | `auto`, `low`, `medium`, `high` |
+| `transparent` | boolean | `false` | Transparent-background instruction |
 | `brand_colors` | array of hex | — | e.g. `["#10B981"]` (each must be `#RRGGBB`) |
 | `reserve_corner` | string | — | `top-left` / `top-right` / `bottom-left` / `bottom-right` |
-| `ref_image` | string (URL) | — | Public https:// URL or a `data:image/png|jpeg|webp;base64,…` string; the model matches its **design style only** (palette, layout, typography) — content is not copied |
 
-Body cap is **4 MiB** (reference images arrive as base64). Responses:
+> **Breaking change:** a bare `ref_image`/`ref_images` now defaults to **`edit`** mode (edit in place / compose), not style-only. To keep the old look-alike behavior, send `"mode": "style"`. The extension's IMAGE tab already sends `mode: "style"`.
+
+Body cap is **16 MiB** (reference images arrive as base64). Responses:
 
 | Status | Body | Meaning |
 |--------|------|---------|
-| `200` | `{"paths": ["C:/abs/path/img-<ts>-0.png"], "files": ["/file?id=<hex>", …]}` | Done — `files` are the same images served over HTTP |
+| `200` | `{"paths": ["C:/abs/path/img-<ts>-0.png"], "files": ["/file?id=<hex>", …], "conversation_id": "..."}` | Done — `files` are the same images served over HTTP |
 | `400` | `{"error": "..."}` | Bad request (invalid `n`, unknown param, bad JSON…) |
 | `401` | `{"error": "No accounts logged in - run `aigpt login`."}` | No account |
 | `403` | `{"error": "origin not allowed"}` | Cross-origin web page (see below) |
 | `409` | `{"busy": true, "error": "..."}` | Another generation is running — retry later |
-| `413` | `{"error": "body too large..."}` | Body over 4 MiB |
+| `413` | `{"error": "body too large..."}` | Body over 16 MiB |
 | `429` | `{"error": "...", "restore_at_epoch": 1735689600.0}` | All accounts exhausted (epoch = soonest reset) |
 | `500` | `{"error": "internal error"}` | Unexpected |
 | `502` | `{"error": "..."}` | Engine/upstream failure |
