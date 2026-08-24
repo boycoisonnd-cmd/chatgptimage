@@ -21,10 +21,7 @@ import aigpt._vendor_path  # noqa: F401
 # with the real chatgpt.com client (see engine/image_wire.py). The rewrite
 # fires on the pre-mutation vendored payload, so it must be installed before
 # any generation runs; importing here is the single wiring point.
-from aigpt.engine import (
-    image_thinking,
-    image_wire,  # noqa: F401
-)
+from aigpt.engine import image_thinking, image_wire
 
 # Importing this wires the multi-account pool into the vendored shim AND forces
 # sequential generation (side effects on import); it also exposes the pool
@@ -112,6 +109,7 @@ def generate_image(
     reserve_corner: str | None = None,
     quality: Quality = "auto",
     transparent: bool = False,
+    conversation_id: str | None = None,
 ) -> GenerateResult:
     """Generate n image(s) and save them as PNGs. Returns saved file paths.
 
@@ -140,6 +138,14 @@ def generate_image(
 
     brand_colors (list of hex) forces a palette; reserve_corner (e.g. "top-left")
     keeps a corner clear for a logo and bans any model-drawn logo/text.
+
+    conversation_id continues an earlier generation in the same conversation
+    (Phase 3 follow-up). Implies edit semantics (T2I enhance skipped) without
+    forcing a mode; requires n=1. On backend rejection the call falls back to a
+    fresh generation ONLY when reference images are attached this turn; without
+    refs it raises a clear error (the subject lives only inside the rejected
+    conversation). parent_message_id is resolved internally (leaf of the
+    conversation), never accepted from callers.
     """
     if ref_image is not None and ref_images is not None:
         raise ValueError(
@@ -148,6 +154,12 @@ def generate_image(
         ref_images = [ref_image]
 
     refs = load_ref_images(ref_images) if ref_images else []
+
+    is_followup = conversation_id is not None
+    if is_followup and n > 1:
+        raise ValueError(
+            "conversation_id continues one existing turn - use n=1 "
+            "(one follow-up image at a time)")
 
     mode = _resolve_mode(mode, refs)
 
@@ -162,11 +174,26 @@ def generate_image(
 
     if mode == "edit":
         # Edit NEVER goes through the T2I text enhancer (it would rewrite the
-        # edit instruction into a text-to-image prompt). Apply the overlay and
-        # keep the user's instruction intact.
-        prompt = apply_mode_overlay("edit", prompt, len(refs), transparent)
+        # edit instruction into a text-to-image prompt). When refs are attached
+        # we overlay against them. A FOLLOW-UP with no refs this turn has its
+        # subject inside the conversation, so nothing is overlaid (claiming so
+        # would lie) - the instruction is sent as-is.
+        if refs or not is_followup:
+            prompt = apply_mode_overlay("edit", prompt, len(refs), transparent)
+        elif transparent:
+            prompt = apply_mode_overlay("generate", prompt, 0, True)
     elif mode == "style":
-        prompt = apply_mode_overlay("style", prompt, len(refs), transparent)
+        if refs or not is_followup:
+            prompt = apply_mode_overlay("style", prompt, len(refs), transparent)
+        elif transparent:
+            prompt = apply_mode_overlay("generate", prompt, 0, True)
+    elif is_followup:
+        # Follow-up implies edit semantics but does NOT force a mode. The
+        # subject already lives inside the conversation, so the T2I enhancer
+        # is skipped (it would rewrite the instruction into a from-scratch
+        # prompt). Send the instruction as-is (transparent hint still applies).
+        if transparent:
+            prompt = apply_mode_overlay("generate", prompt, 0, True)
     elif enhance:
         # T2I enhance: fix the account for THIS image so enhance (text) and the
         # image share it (raises NoQuotaError up-front if every account is exhausted).
@@ -201,13 +228,35 @@ def generate_image(
 
     # Select reasoning effort for the image-prepare payload (no-op when "auto").
     image_thinking.set_thinking(thinking)
+    image_wire.begin_generation()
+    if is_followup:
+        image_wire.set_followup(conversation_id)
     try:
-        # The pool wrapper calls account_service.get_available_access_token()
-        # internally (our shim -> our token), so no manual backend construction.
-        saved, message, conversation_id = _collect_saved(
-            stream_image_outputs_with_pool(request), n, out_dir
-        )
+        try:
+            # The pool wrapper calls account_service.get_available_access_token()
+            # internally (our shim -> our token), so no manual backend construction.
+            saved, message, out_conversation_id = _collect_saved(
+                stream_image_outputs_with_pool(request), n, out_dir
+            )
+        except Exception:
+            if is_followup and image_wire.consume_followup_rejection():
+                if not refs:
+                    # The follow-up's subject lives ONLY inside the rejected
+                    # conversation; a bare fresh generation would spend quota
+                    # on a meaningless image. Refuse loudly instead.
+                    raise RuntimeError(
+                        "follow-up conversation is not accessible from this "
+                        "account - re-run with reference images attached"
+                    ) from None
+                print("[followup] rejected - retrying as fresh generation",
+                      file=sys.stderr)
+                saved, message, out_conversation_id = _collect_saved(
+                    stream_image_outputs_with_pool(request), n, out_dir
+                )
+            else:
+                raise
     finally:
+        image_wire.clear_followup()
         image_thinking.set_thinking("auto")
 
     if not saved:
@@ -216,4 +265,4 @@ def generate_image(
         raise RuntimeError(
             f"image generation produced no images. Engine said: {msg}"
         )
-    return GenerateResult.from_list(saved, conversation_id)
+    return GenerateResult.from_list(saved, out_conversation_id)
