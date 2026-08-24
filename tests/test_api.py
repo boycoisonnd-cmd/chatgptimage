@@ -118,6 +118,24 @@ def test_parse_generate_request_rejects_missing_prompt():
         api.parse_generate_request(json.dumps({"n": 1}).encode())
 
 
+def test_parse_generate_request_accepts_conversation_id():
+    got = api.parse_generate_request(
+        json.dumps(_req(conversation_id=" conv-9 ")).encode())
+    assert got["conversation_id"] == "conv-9"  # coerced + stripped
+
+
+def test_parse_generate_request_empty_conversation_id_omitted():
+    got = api.parse_generate_request(
+        json.dumps(_req(conversation_id="   ")).encode())
+    assert "conversation_id" not in got  # empty -> fresh generation
+
+
+def test_parse_generate_request_rejects_parent_message_id():
+    with pytest.raises(ValueError, match="unknown parameter"):
+        api.parse_generate_request(
+            json.dumps(_req(parent_message_id="msg-1")).encode())
+
+
 def test_parse_generate_request_rejects_oversize():
     big = json.dumps(_req(prompt="x" * (api._MAX_BODY + 10))).encode()
     with pytest.raises(ValueError, match="too large"):
