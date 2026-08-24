@@ -101,7 +101,7 @@ def test_vendor_imports_do_not_pull_dead_modules():
 # ---------------------------------------------------------------------------
 import inspect
 
-from aigpt.engine import image_thinking, image_wire
+from aigpt.engine import image_wire
 
 
 def test_vendor_start_image_generation_keeps_wire_matcher_markers():
@@ -127,8 +127,14 @@ def test_vendor_upload_image_keeps_files_matcher_markers():
 
 
 def test_vendor_prepare_keeps_partial_query_marker():
-    """Prepare and gen must stay distinguishable (partial_query on prepare)."""
-    src = inspect.getsource(image_thinking._orig_prepare)
+    """Prepare and gen must stay distinguishable (partial_query on prepare).
+
+    Note: image_thinking imports image_wire, so image_wire's wrapper installs
+    FIRST and captures the genuine vendor original — use its captured
+    reference, not image_thinking._orig_prepare (which is image_wire's
+    wrapper by the time anything imports image_thinking).
+    """
+    src = inspect.getsource(image_wire._orig_prepare_image_conversation)
     assert "partial_query" in src, \
         "vendored prepare payload lost partial_query - gen/prepare matchers collide"
     assert "system_hints" in src, \

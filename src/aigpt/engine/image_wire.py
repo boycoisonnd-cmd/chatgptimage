@@ -30,7 +30,7 @@ wire dialect without any session at all.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 # MUST precede vendored imports (sys.path side effect).
@@ -57,6 +57,10 @@ class Followup:
 
     conversation_id: str
     parent_message_id: str | None = None
+
+
+class FollowupResolutionError(ValueError):
+    """The conversation mapping carried no message usable as a follow-up parent."""
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +246,53 @@ def rewrite_gen_payload(
 
 
 # ---------------------------------------------------------------------------
+# Leaf resolution (B0 findings: create_time lives at MESSAGE level, the true
+# leaf after an image gen is a role=tool node, and the response's
+# `current_node` points exactly at it — prefer that over walking mapping).
+# ---------------------------------------------------------------------------
+def resolve_leaf_message_id(backend: Any, conversation_id: str) -> str:
+    """Message id to chain a follow-up after, for ``conversation_id``.
+
+    Prefer the conversation's ``current_node`` (canonical leaf); otherwise
+    walk ``mapping`` for child-less nodes and take the max message-level
+    ``create_time`` (tool role INCLUDED — excluding it picks the wrong
+    parent). Raises FollowupResolutionError when nothing qualifies, and
+    UpstreamHTTPError propagates as-is (that is the early-rejection route
+    for inaccessible conversations — see the prepare wrapper).
+    """
+    detail = backend._get_conversation(conversation_id)
+    if not isinstance(detail, dict):
+        raise FollowupResolutionError("conversation detail missing")
+    mapping = detail.get("mapping") or {}
+
+    current_node = detail.get("current_node") or ""
+    if current_node and current_node in mapping:
+        message = mapping[current_node].get("message") or {}
+        message_id = str(message.get("id") or "")
+        if message_id:
+            return message_id
+
+    candidates = [
+        (
+            (node.get("message") or {}).get("create_time") or 0,
+            str((node.get("message") or {}).get("id") or ""),
+        )
+        for node in mapping.values()
+        if isinstance(node, dict)
+        and not node.get("children")
+        and isinstance(node.get("message"), dict)
+        and (node.get("message") or {}).get("id")
+        and ((node.get("message") or {}).get("author") or {}).get("role")
+        != "system"
+    ]
+    if not candidates:
+        raise FollowupResolutionError(
+            f"no follow-up parent message in conversation {conversation_id}"
+        )
+    return max(candidates)[1]
+
+
+# ---------------------------------------------------------------------------
 # Matchers (run on the PRE-mutation body: the rewrite clears the marker, so
 # matching after mutation would never fire twice — and must fire at all).
 # ---------------------------------------------------------------------------
@@ -266,6 +317,17 @@ def _is_gen_payload(url: object, body: object) -> bool:
         and url.rstrip("/").endswith("/backend-api/f/conversation")
         and isinstance(body, dict)
         and "messages" in body
+        and body.get("system_hints") == ["picture_v2"]
+    )
+
+
+def _is_prepare_payload(url: object, body: object) -> bool:
+    """The image-prepare POST (same picture_v2 marker as image_thinking uses)."""
+    return (
+        isinstance(url, str)
+        and url.rstrip("/").endswith("/backend-api/f/conversation/prepare")
+        and isinstance(body, dict)
+        and "partial_query" in body
         and body.get("system_hints") == ["picture_v2"]
     )
 
@@ -353,6 +415,7 @@ def _capture_library_id(url: object, body: object, response: Any) -> None:
 
 _orig_upload_image = OpenAIBackendAPI._upload_image
 _orig_start_image_generation = OpenAIBackendAPI._start_image_generation
+_orig_prepare_image_conversation = OpenAIBackendAPI._prepare_image_conversation
 
 
 def _upload_image_w(self, image, file_name: str = "image.png"):
@@ -406,6 +469,55 @@ def _start_image_generation_w(
         restore()  # exact-restore: never strips an outer stacked interceptor
 
 
+def _prepare_image_conversation_w(self, prompt, requirements, model):
+    """Interceptor #3: inject the follow-up chain into the prepare POST.
+
+    Spike B0 found prepare accepts conversation_id but does not require it;
+    we still inject it to mirror the web, and — more importantly — resolve
+    and cache the leaf message id HERE so the generation wrapper can set
+    parent_message_id.
+
+    The resolution GET intentionally runs INSIDE this wrapper: an
+    inaccessible conversation surfaces as UpstreamHTTPError(404) from
+    `_get_conversation`, and the except block below converts that into the
+    rejection flag. That routing is the early-rejection detector for bogus
+    or cross-account conversation ids; do not hoist the call out without
+    re-wiring rejection detection (test-verified).
+    """
+    global _followup, _rejected
+
+    if _followup is not None and _followup.parent_message_id is None:
+        try:
+            leaf = resolve_leaf_message_id(self, _followup.conversation_id)
+        except UpstreamHTTPError as exc:
+            if exc.status_code in _REJECTION_STATUSES:
+                _rejected = True
+            raise
+        _followup = replace(_followup, parent_message_id=leaf)
+
+    def _mutate(url, body):
+        if _followup is None or not _is_prepare_payload(url, body):
+            return None
+        return {
+            **body,
+            "conversation_id": _followup.conversation_id,
+            "parent_message_id": _followup.parent_message_id,
+        }
+
+    def _build(real_post):
+        return _wrapped_post(real_post, mutate=_mutate)
+
+    restore = _swap_post(self.session, _build)
+    try:
+        return _orig_prepare_image_conversation(self, prompt, requirements, model)
+    except UpstreamHTTPError as exc:
+        if _followup is not None and exc.status_code in _REJECTION_STATUSES:
+            _rejected = True
+        raise
+    finally:
+        restore()  # exact-restore: never strips an outer stacked interceptor
+
+
 # Install once (idempotent across re-imports), same pattern as image_thinking.
 if not getattr(OpenAIBackendAPI._upload_image, "_aigpt_wire", False):
     _upload_image_w._aigpt_wire = True  # type: ignore[attr-defined]
@@ -414,3 +526,7 @@ if not getattr(OpenAIBackendAPI._upload_image, "_aigpt_wire", False):
 if not getattr(OpenAIBackendAPI._start_image_generation, "_aigpt_wire", False):
     _start_image_generation_w._aigpt_wire = True  # type: ignore[attr-defined]
     OpenAIBackendAPI._start_image_generation = _start_image_generation_w
+
+if not getattr(OpenAIBackendAPI._prepare_image_conversation, "_aigpt_wire", False):
+    _prepare_image_conversation_w._aigpt_wire = True  # type: ignore[attr-defined]
+    OpenAIBackendAPI._prepare_image_conversation = _prepare_image_conversation_w

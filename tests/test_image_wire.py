@@ -15,8 +15,8 @@ from PIL import Image
 
 # MUST precede vendored imports (sys.path side effect).
 import aigpt._vendor_path  # noqa: F401
-from aigpt.engine import image_wire
-from aigpt.engine.image_wire import Followup
+from aigpt.engine import image_thinking, image_wire
+from aigpt.engine.image_wire import Followup, FollowupResolutionError
 from services.openai_backend_api import OpenAIBackendAPI
 from utils.helper import UpstreamHTTPError
 
@@ -351,9 +351,20 @@ class _DuckBackend:
 
     base_url = _BASE
     user_agent = "test-ua"
+    # Canned conversation-detail payload for leaf resolution (tests set it).
+    conversation_detail: dict | Exception | None = None
 
     def __init__(self, session: _RecordingSession):
         self.session = session
+
+    def _get_conversation(self, conversation_id):
+        detail = self.conversation_detail
+        if isinstance(detail, Exception):
+            raise detail
+        if detail is None:
+            raise UpstreamHTTPError(
+                "conversation", 404, {"detail": "not found"})
+        return detail
 
     def _headers(self, path, extra=None):
         return {"X-Test": "1"}
@@ -538,3 +549,188 @@ def test_wrappers_are_installed_idempotently():
     assert getattr(OpenAIBackendAPI._upload_image, "_aigpt_wire", False) is True
     assert getattr(
         OpenAIBackendAPI._start_image_generation, "_aigpt_wire", False) is True
+
+
+# ---------------------------------------------------------------------------
+# B1: leaf resolution + prepare wrapper.
+# ---------------------------------------------------------------------------
+def _detail(*leaves, current_node: str | None = None) -> dict:
+    """Conversation-detail fixture: leaves = (message_id, create_time, role)."""
+    mapping = {}
+    for i, (message_id, create_time, role) in enumerate(leaves):
+        node_id = f"node-{i}"
+        mapping[node_id] = {
+            "children": [],
+            "message": {
+                "id": message_id,
+                "create_time": create_time,
+                "author": {"role": role},
+            },
+        }
+    if current_node:
+        # Point current_node at the node whose message id matches.
+        for node_id, node in mapping.items():
+            if node["message"]["id"] == current_node:
+                return {"current_node": node_id, "mapping": mapping}
+    return {"mapping": mapping}
+
+
+def test_resolve_leaf_prefers_current_node():
+    backend = _DuckBackend(_RecordingSession())
+    backend.conversation_detail = _detail(
+        ("msg-old", 100.0, "user"),
+        ("msg-tool-leaf", 300.0, "tool"),
+        current_node="msg-tool-leaf",
+    )
+    leaf = image_wire.resolve_leaf_message_id(backend, "conv-1")
+    assert leaf == "msg-tool-leaf"
+
+
+def test_resolve_leaf_walks_mapping_tool_included():
+    backend = _DuckBackend(_RecordingSession())
+    # No current_node: the tool leaf has the max create_time and MUST win
+    # (excluding tool would pick the wrong parent — spike B0 finding).
+    backend.conversation_detail = _detail(
+        ("msg-system", 50.0, "system"),
+        ("msg-user", 100.0, "user"),
+        ("msg-tool-leaf", 300.0, "tool"),
+    )
+    leaf = image_wire.resolve_leaf_message_id(backend, "conv-1")
+    assert leaf == "msg-tool-leaf"
+
+
+def test_resolve_leaf_skips_system_and_requires_message():
+    backend = _DuckBackend(_RecordingSession())
+    backend.conversation_detail = _detail(
+        ("msg-system", 50.0, "system"),
+        ("msg-user", 100.0, "user"),
+    )
+    leaf = image_wire.resolve_leaf_message_id(backend, "conv-1")
+    assert leaf == "msg-user"
+
+    # Only system leaves -> nothing usable.
+    backend.conversation_detail = _detail(("msg-system", 50.0, "system"))
+    with pytest.raises(FollowupResolutionError):
+        image_wire.resolve_leaf_message_id(backend, "conv-1")
+
+
+def test_resolve_leaf_empty_mapping_raises():
+    backend = _DuckBackend(_RecordingSession())
+    backend.conversation_detail = {"mapping": {}}
+    with pytest.raises(FollowupResolutionError):
+        image_wire.resolve_leaf_message_id(backend, "conv-1")
+
+
+def test_prepare_wrapper_injects_chain_and_caches_leaf():
+    session = _RecordingSession()
+    session.responses["/prepare"] = _FakeResponse(
+        payload={"conduit_token": "conduit-xyz"})
+    backend = _DuckBackend(session)
+    backend.conversation_detail = _detail(
+        ("msg-user", 100.0, "user"),
+        ("msg-tool-leaf", 300.0, "tool"),
+        current_node="msg-tool-leaf",
+    )
+    image_wire.begin_generation()
+    image_wire.set_followup("conv-1")  # parent not given -> resolved lazily
+
+    conduit = backend._prepare_image_conversation("make it red", _Reqs(), "gpt-image-2")
+    assert conduit == "conduit-xyz"
+
+    prepare_call = next(
+        (url, body) for url, body in session.calls
+        if url.endswith("/prepare") and isinstance(body, dict))
+    assert prepare_call[1]["conversation_id"] == "conv-1"
+    assert prepare_call[1]["parent_message_id"] == "msg-tool-leaf"
+    assert prepare_call[1]["system_hints"] == ["picture_v2"]
+
+    # Leaf cached on the follow-up so the gen wrapper needs no second GET.
+    assert image_wire.current_followup().parent_message_id == "msg-tool-leaf"
+
+
+def test_prepare_wrapper_resolves_leaf_only_once():
+    session = _RecordingSession()
+    session.responses["/prepare"] = _FakeResponse(
+        payload={"conduit_token": "c"})
+    backend = _DuckBackend(session)
+    backend.conversation_detail = _detail(
+        ("msg-tool-leaf", 300.0, "tool"), current_node="msg-tool-leaf")
+    image_wire.begin_generation()
+    image_wire.set_followup("conv-1")
+
+    backend._prepare_image_conversation("p1", _Reqs(), "gpt-image-2")
+    backend._prepare_image_conversation("p2", _Reqs(), "gpt-image-2")
+
+    get_calls = [c for c in backend.session.calls
+                 if "conversation" in c[0] and not c[0].endswith("/prepare")]
+    # The resolution GET is cached; only POST calls hit the session.
+    assert get_calls == []
+
+
+def test_prepare_wrapper_no_followup_sends_no_chain():
+    session = _RecordingSession()
+    session.responses["/prepare"] = _FakeResponse(
+        payload={"conduit_token": "c"})
+    backend = _DuckBackend(session)
+    backend.conversation_detail = _detail(
+        ("msg-tool-leaf", 300.0, "tool"), current_node="msg-tool-leaf")
+    image_wire.begin_generation()
+
+    backend._prepare_image_conversation("p", _Reqs(), "gpt-image-2")
+    prepare_call = next(
+        (url, body) for url, body in session.calls
+        if url.endswith("/prepare") and isinstance(body, dict))
+    assert "conversation_id" not in prepare_call[1]
+
+
+def test_leaf_resolution_404_flags_rejection_early():
+    """The GET runs INSIDE the prepare wrapper: a 404 surfaces as
+    UpstreamHTTPError and is caught by the SAME rejection handler — the
+    early-rejection route for bogus / inaccessible conversation ids."""
+    session = _RecordingSession()
+    backend = _DuckBackend(session)
+    backend.conversation_detail = None  # -> UpstreamHTTPError(404)
+    image_wire.begin_generation()
+    image_wire.set_followup("bogus-conv")
+
+    with pytest.raises(UpstreamHTTPError):
+        backend._prepare_image_conversation("p", _Reqs(), "gpt-image-2")
+    assert image_wire.consume_followup_rejection() is True
+
+
+def test_leaf_resolution_500_does_not_flag_rejection():
+    session = _RecordingSession()
+    backend = _DuckBackend(session)
+    backend.conversation_detail = UpstreamHTTPError("conversation", 500, {})
+    image_wire.begin_generation()
+    image_wire.set_followup("conv-1")
+
+    with pytest.raises(UpstreamHTTPError):
+        backend._prepare_image_conversation("p", _Reqs(), "gpt-image-2")
+    assert image_wire.consume_followup_rejection() is False
+
+
+def test_prepare_stack_with_thinking_carries_both():
+    """image_thinking wraps on top of image_wire's prepare wrapper: the final
+    body must carry BOTH thinking_effort (thinking layer) and the follow-up
+    chain (wire layer)."""
+    session = _RecordingSession()
+    session.responses["/prepare"] = _FakeResponse(
+        payload={"conduit_token": "c"})
+    backend = _DuckBackend(session)
+    backend.conversation_detail = _detail(
+        ("msg-tool-leaf", 300.0, "tool"), current_node="msg-tool-leaf")
+    image_wire.begin_generation()
+    image_wire.set_followup("conv-1")
+    image_thinking.set_thinking("extended")
+    try:
+        backend._prepare_image_conversation("p", _Reqs(), "gpt-image-2")
+        prepare_call = next(
+            (url, body) for url, body in session.calls
+            if url.endswith("/prepare") and isinstance(body, dict))
+        assert prepare_call[1]["thinking_effort"] == "extended"
+        assert prepare_call[1]["conversation_id"] == "conv-1"
+        assert prepare_call[1]["parent_message_id"] == "msg-tool-leaf"
+    finally:
+        image_thinking.set_thinking(None)
+    assert "post" not in session.__dict__
