@@ -127,7 +127,8 @@ def test_edit_compose_overlay_for_two_refs():
         from aigpt.engine.generate import generate_image
         generate_image("put person into scene",
                        ref_images=[_DATA_URL, _DATA_URL], enhance=False)
-    assert "primary subject" in captured["prompt"]
+    assert "Combine the attached images" in captured["prompt"]
+    assert "primary subject" not in captured["prompt"]
 
 
 def test_edit_does_not_call_t2i_enhance():

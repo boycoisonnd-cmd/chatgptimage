@@ -22,11 +22,13 @@ _EDIT_OVERLAY_SINGLE = (
     "Preserve all unmentioned details."
 )
 
-# Multi-image COMPOSE instruction: combine subject + background/elements.
+# Multi-image COMPOSE: never invent numbering — the user's prompt already
+# names which image is who (e.g. "ảnh 2 mặc váy ảnh 1"). Forcing "Image 1 is
+# the primary subject" contradicts the user and ChatGPT then fails the turn.
 _COMPOSE_OVERLAY = (
-    "The attached images should be combined as described. "
-    "Image 1 is the primary subject unless stated otherwise. "
-    "Integrate the other images naturally into the scene."
+    "Combine the attached images as the prompt describes. "
+    "Honor the user's numbering (image 1 / ảnh 1, image 2 / ảnh 2, …) "
+    "if they named one. Do not assume which image is the subject."
 )
 
 # Transparent background hint.

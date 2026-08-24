@@ -51,3 +51,8 @@ set_pool_provider(
 # Force sequential generation (decision #7): the unlocked pool singleton must not
 # be raced by the engine's parallel n>1 branch. Runtime patch, no _vendor edit.
 _vendor_config.data["image_parallel_generation"] = False
+
+# I2I (especially 2–4 refs) routinely exceeds the vendor default 120s poll.
+# ChatGPT itself can sit in queue; 120s then surfaces as "生图超时" even when
+# the conversation exists. Bump at runtime — no _vendor / config.json edit.
+_vendor_config.data["image_poll_timeout_secs"] = 300

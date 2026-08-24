@@ -20,13 +20,16 @@ def test_edit_single_overlay_preserves_identity():
 def test_edit_multi_compose_overlay():
     out = apply_mode_overlay("edit", "put person into scene", 2)
     assert "put person into scene" in out
-    assert "primary subject" in out
+    assert "Combine the attached images" in out
+    # Must NOT force "Image 1 is the primary subject" — that contradicts
+    # prompts like "girl in image 2 wears the dress in image 1".
+    assert "primary subject" not in out
 
 
 def test_edit_multi_compose_requires_two_or_more():
     # 2+ refs → compose; 1 ref → single edit
-    assert "primary subject" in apply_mode_overlay("edit", "x", 2)
-    assert "primary subject" not in apply_mode_overlay("edit", "x", 1)
+    assert "Combine the attached images" in apply_mode_overlay("edit", "x", 2)
+    assert "Combine the attached images" not in apply_mode_overlay("edit", "x", 1)
 
 
 def test_style_overlay_injected():

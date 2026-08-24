@@ -124,6 +124,11 @@ def build_response_from_exception(exc: BaseException) -> tuple[int, dict]:
         if exc.restore_at_epoch is not None:
             return 429, {"error": str(exc), "restore_at_epoch": exc.restore_at_epoch}
         return 401, {"error": str(exc)}  # no accounts logged in
+    if type(exc).__name__ == "ImagePollTimeoutError":
+        return 504, {
+            "error": "image generation timed out — ChatGPT is still working or the "
+                     "queue is busy. Retry in a minute.",
+        }
     if isinstance(exc, RuntimeError) or type(exc).__name__ in _UPSTREAM_ERROR_NAMES:
         return 502, {"error": str(exc)}
     return 500, {"error": "internal error"}

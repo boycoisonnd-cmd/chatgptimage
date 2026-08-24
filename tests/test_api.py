@@ -33,12 +33,22 @@ def test_exception_mapping_noquota_without_restore_is_401():
 
 def test_exception_mapping_upstream_names():
     for name in api._UPSTREAM_ERROR_NAMES:
+        if name == "ImagePollTimeoutError":
+            continue  # mapped to 504, not 502
         # Create a dynamic subclass of RuntimeError with that __name__
         cls = type(name, (RuntimeError,), {})
         exc = cls(f"{name}: boom")
         status, body = api.build_response_from_exception(exc)
         assert status == 502
         assert "boom" in body["error"]
+
+
+def test_exception_mapping_poll_timeout_is_504():
+    cls = type("ImagePollTimeoutError", (RuntimeError,), {})
+    status, body = api.build_response_from_exception(cls("ChatGPT 生图超时"))
+    assert status == 504
+    assert "timed out" in body["error"]
+    assert "生图超时" not in body["error"]
 
 
 def test_exception_mapping_generic_runtime_error_is_502():

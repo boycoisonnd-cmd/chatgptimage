@@ -176,7 +176,7 @@ Configure in your MCP client (e.g. Claude Desktop / VS Code):
 
 Returns `{"paths": ["C:/abs/path/img-<ts>-0.png", ...], "conversation_id": "..."}`.
 
-> **Mode semantics** (matches ChatGPT): `edit` with 1 ref keeps the subject/identity and applies the instruction; `edit` with 2–4 refs **composes** them (image 1 = primary subject unless the prompt says otherwise). `style` borrows palette/layout/type/mood only — content is **not** copied. Local file paths are rejected (H4); the CLI reads local files to `data:` URLs for you.
+> **Mode semantics** (matches ChatGPT): `edit` with 1 ref keeps the subject/identity and applies the instruction; `edit` with 2–4 refs **composes** them and honors the user's numbering ("image 1" / "ảnh 1") if they named one. `style` borrows palette/layout/type/mood only — content is **not** copied. Local file paths are rejected (H4); the CLI reads local files to `data:` URLs for you.
 
 ## HTTP REST API
 
