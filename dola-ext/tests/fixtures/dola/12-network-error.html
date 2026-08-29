@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dola — chat</title>
+</head>
+<body data-fixture="12-network-error">
+  <!-- SANITIZED FIXTURE. -->
+  <div id="app">
+    <main data-testid="chat-main">
+      <section data-testid="message-list" aria-label="Messages">
+        <article data-testid="user-message">A red apple on a white table</article>
+        <article data-testid="assistant-message">
+          <div data-testid="error-inline" role="alert">Network error. Check your connection and try again.</div>
+        </article>
+      </section>
+      <div data-testid="composer">
+        <textarea data-testid="prompt-editor" placeholder="Ask anything" aria-label="Message input"></textarea>
+        <button data-testid="send-button">Send</button>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

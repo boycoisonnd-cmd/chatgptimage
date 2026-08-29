@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dola — chat</title>
+</head>
+<body data-fixture="11-captcha">
+  <!-- SANITIZED FIXTURE. -->
+  <div id="app">
+    <main data-testid="chat-main">
+      <section data-testid="message-list" aria-label="Messages"></section>
+      <div data-testid="verification-container">
+        <p>Confirm you're not a robot</p>
+        <div data-testid="captcha-widget" aria-label="CAPTCHA challenge"></div>
+      </div>
+      <div data-testid="composer">
+        <textarea data-testid="prompt-editor" placeholder="Ask anything" aria-label="Message input"></textarea>
+        <button data-testid="send-button" disabled>Send</button>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dola — chat</title>
+</head>
+<body data-fixture="08-completed-multi-image">
+  <!-- SANITIZED FIXTURE. -->
+  <div id="app">
+    <main data-testid="chat-main">
+      <section data-testid="message-list" aria-label="Messages">
+        <article data-testid="user-message">four cats, different poses</article>
+        <article data-testid="assistant-message">
+          <div data-testid="result-grid">
+            <figure><img data-testid="result-img" src="https://fixture.example/images/cat-1.jpg" width="1024" height="1024" alt="Generated image 1"></figure>
+            <figure><img data-testid="result-img" src="https://fixture.example/images/cat-2.jpg" width="1024" height="1024" alt="Generated image 2"></figure>
+            <figure><img data-testid="result-img" src="https://fixture.example/images/cat-3.jpg" width="1024" height="1024" alt="Generated image 3"></figure>
+            <figure><img data-testid="result-img" src="https://fixture.example/images/cat-4.jpg" width="1024" height="1024" alt="Generated image 4"></figure>
+          </div>
+        </article>
+      </section>
+      <div data-testid="composer">
+        <textarea data-testid="prompt-editor" placeholder="Ask anything" aria-label="Message input"></textarea>
+        <button data-testid="send-button" disabled>Send</button>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

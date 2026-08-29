@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "description": "Sanitized Dola UI fixtures for offline selector/state tests",
+  "capturedBase": "2026-08-29",
+  "sanitizationRules": [
+    "no real names/emails",
+    "no avatar URLs",
+    "no tokens or signed URLs",
+    "image URLs replaced with fixture placeholders",
+    "random tracking attributes removed"
+  ],
+  "fixtures": [
+    {
+      "fixture": "01-logged-out.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "LOGIN_REQUIRED",
+      "expectedResultCount": 0,
+      "containsPersonalData": false
+    },
+    {
+      "fixture": "02-ready-default.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "READY",
+      "expectedResultCount": 0,
+      "containsPersonalData": false
+    },
+    {
+      "fixture": "03-image-mode-open.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "READY",
+      "expectedImageMode": true,
+      "expectedResultCount": 0,
+      "containsPersonalData": false
+    },
+    {
+      "fixture": "04-prompt-filled.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "READY",
+      "expectedPrompt": "A red apple on a white table",
+      "expectedResultCount": 0,
+      "containsPersonalData": false
+    },
+    {
+      "fixture": "05-submitting.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "SUBMITTING",
+      "expectedResultCount": 0,
+      "containsPersonalData": false
+    },
+    {
+      "fixture": "06-generating.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "GENERATING",
+      "expectedResultCount": 0,
+      "containsPersonalData": false
+    },
+    {
+      "fixture": "07-completed-one-image.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "COMPLETED",
+      "expectedResultCount": 1,
+      "containsPersonalData": false
+    },
+    {
+      "fixture": "08-completed-multi-image.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "COMPLETED",
+      "expectedResultCount": 4,
+      "containsPersonalData": false
+    },
+    {
+      "fixture": "09-quota-error.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "BLOCKED",
+      "expectedErrorCode": "QUOTA_LIMIT",
+      "expectedResultCount": 0,
+      "containsPersonalData": false
+    },
+    {
+      "fixture": "10-content-rejected.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "BLOCKED",
+      "expectedErrorCode": "CONTENT_REJECTED",
+      "expectedResultCount": 0,
+      "containsPersonalData": false
+    },
+    {
+      "fixture": "11-captcha.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "BLOCKED",
+      "expectedErrorCode": "CAPTCHA",
+      "expectedResultCount": 0,
+      "containsPersonalData": false
+    },
+    {
+      "fixture": "12-network-error.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "FAILED",
+      "expectedErrorCode": "NETWORK_OFFLINE",
+      "expectedResultCount": 0,
+      "containsPersonalData": false
+    },
+    {
+      "fixture": "13-unknown-layout.html",
+      "capturedAt": "2026-08-29",
+      "expectedState": "UNKNOWN",
+      "expectedErrorCode": "UI_CHANGED",
+      "expectedResultCount": 0,
+      "containsPersonalData": false
+    }
+  ]
+}
