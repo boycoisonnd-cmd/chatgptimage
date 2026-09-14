@@ -1,16 +1,19 @@
 <!doctype html>
-<html lang="en">
+<html lang="vi">
+
 <head>
   <meta charset="utf-8">
   <title>GPT Image Studio</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: http://127.0.0.1:8787; connect-src http://127.0.0.1:8787 http://127.0.0.1:8788; frame-src 'none'; object-src 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: http://127.0.0.1:8789; connect-src http://127.0.0.1:8789 http://127.0.0.1:8788; frame-src 'none'; object-src 'none'; base-uri 'none'">
   <link rel="stylesheet" href="studio.css">
 </head>
+
 <body>
 
   <header class="app-header">
     <h1><span class="logo">🟣</span> GPT IMAGE STUDIO</h1>
-    <span class="server-dot"><i id="dot"></i><span id="srv">checking…</span></span>
+    <span class="server-dot"><i id="dot"></i><span id="srv">đang kiểm tra…</span></span>
   </header>
 
   <main>
@@ -20,17 +23,17 @@
         <div class="avatar" id="avatar">?</div>
         <div>
           <div class="name" id="accName">Chưa đăng nhập</div>
-          <div class="sub" id="accSub">no account</div>
+          <div class="sub" id="accSub">chưa có account</div>
         </div>
       </div>
-      <button class="btn small" id="accBtn">Add account</button>
+      <button class="btn small" id="accBtn">Thêm account</button>
     </div>
 
     <!-- Tabs -->
     <div class="tabs">
       <div class="tab active" data-tab="image">IMAGE</div>
       <div class="tab" data-tab="edit">EDIT</div>
-      <div class="tab" data-tab="chatgpt">CHATGPT</div>
+      <div class="tab" data-tab="mcp">MCP</div>
     </div>
 
     <!-- IMAGE tab -->
@@ -39,16 +42,19 @@
 
       <div class="dropzone" id="dropzone">
         <input type="file" id="refFile" accept="image/png,image/jpeg,image/webp">
-        <span class="dz-label" id="dzLabel">☁️ Upload Reference</span>
+        <span class="dz-label" id="dzLabel">☁️ Tải ảnh tham chiếu</span>
       </div>
 
       <div class="field">
         <label for="prompt">Prompt</label>
-        <textarea id="prompt" placeholder="Describe image..."></textarea>
+        <div class="hint">Mỗi prompt cách nhau bằng 1 dòng trống / 1 dòng 5 dấu bằng =====</div>
+        <textarea id="prompt" placeholder="Mô tả ảnh..."></textarea>
       </div>
+      <div id="promptPreview" hidden></div>
+      <div class="hint" id="previewHint" hidden>Preview sẽ tự cập nhật theo prompt và ảnh đầu vào.</div>
 
       <details class="settings">
-        <summary>Advanced Settings</summary>
+        <summary>Cài đặt nâng cao</summary>
         <div class="row2">
           <div class="field">
             <label for="aspect">Aspect</label>
@@ -61,7 +67,7 @@
             </select>
           </div>
           <div class="field">
-            <label for="n">Count</label>
+            <label for="n">Số lượng</label>
             <select id="n">
               <option value="1">1</option>
               <option value="2">2</option>
@@ -91,7 +97,7 @@
         </div>
       </details>
 
-      <button class="btn primary btn-block" id="genBtn">✨ GENERATE IMAGE</button>
+      <button class="btn primary btn-block" id="genBtn">✨ TẠO ẢNH</button>
       <div class="status" id="status"></div>
     </section>
 
@@ -99,12 +105,12 @@
     <section id="tab-edit" hidden>
       <div class="dropzone" id="dropzoneEdit">
         <input type="file" id="editFile" accept="image/png,image/jpeg,image/webp" multiple>
-        <span class="dz-label" id="dzLabelEdit">☁️ Upload 1 image to edit, or 2-4 to combine</span>
+        <span class="dz-label" id="dzLabelEdit">☁️ Tải 1 ảnh để sửa, hoặc 2–4 ảnh để ghép</span>
       </div>
       <div class="thumbs" id="editThumbs"></div>
       <div class="field">
-        <label for="editPrompt">Edit instruction</label>
-        <textarea id="editPrompt" placeholder="e.g. make the background purple, add a logo top-left"></textarea>
+        <label for="editPrompt">Yêu cầu chỉnh sửa</label>
+        <textarea id="editPrompt" placeholder="vd: nền tím, thêm logo góc trên trái"></textarea>
       </div>
       <div class="row2">
         <div class="field">
@@ -129,30 +135,134 @@
         </div>
       </div>
       <label class="chk"><input type="checkbox" id="editEnhance"> enhance</label>
-      <button class="btn primary btn-block" id="editBtn">🛠 EDIT IMAGE</button>
+      <button class="btn primary btn-block" id="editBtn">🛠 SỬA ẢNH</button>
       <div class="status" id="editStatus"></div>
     </section>
 
-    <!-- CHATGPT tab -->
-    <section id="tab-chatgpt" hidden>
-      <p class="empty">💬 ChatGPT editing is not available in this panel.</p>
-      <p class="empty">Use <code>aigpt</code> CLI or the MCP server — or open
-        <a href="https://chatgpt.com" target="_blank" rel="noopener">chatgpt.com</a>.
-      </p>
+    <!-- MCP tab: connect another project to this repo's aigpt-mcp server -->
+    <section id="tab-mcp" hidden>
+      <div class="mcp-hero">
+        <div class="mcp-title">🔌 Nối project khác vào MCP server này</div>
+        <p>Repo này có sẵn một MCP server (<code>aigpt-mcp</code>) — bất kỳ công cụ
+          nào hỗ trợ MCP (Claude Code, Claude Desktop, Cursor, VS Code, Windsurf…)
+          đều gọi được để tạo ảnh bằng các account ChatGPT đã đăng nhập ở đây.
+          Bên kia không cần cài extension.</p>
+      </div>
+
+      <div class="mcp-section">
+        <div class="mcp-section-title">Cách hoạt động</div>
+        <ul class="mcp-tools">
+          <li>Ảnh được tạo qua <strong>backend web ChatGPT</strong> (không phải OpenAI API chính thức, không cần API
+            key).</li>
+          <li>Cần ít nhất 1 account ChatGPT đã đăng nhập — bấm <strong>Thêm account</strong> trong panel này, hoặc chạy
+            <code>uv run aigpt login --wait</code>.</li>
+          <li>Account dùng chung giữa panel / CLI / MCP — đăng nhập 1 lần là đủ cho mọi client.</li>
+        </ul>
+      </div>
+
+      <div class="mcp-section">
+        <div class="mcp-section-title">Bước 1 · Lấy config đúng cho máy này</div>
+        <p class="mcp-note">Chạy script bên dưới trong thư mục repo — nó tự tìm đường
+          dẫn repo, không hardcode, nên đúng cả khi bạn chuyển repo sang máy khác
+          đặt vị trí khác. Copy output rồi dán vào client MCP của bạn.</p>
+        <pre class="mcp-code" data-copy="1">powershell -ExecutionPolicy Bypass -File scripts\gen_mcp_config.ps1</pre>
+        <div class="hint">Chưa muốn chạy script? Các ví dụ bên dưới dùng đường dẫn mẫu
+          <code>C:/path/to/chatgptimage</code> — nhớ thay bằng đường dẫn repo này trên máy bạn.
+        </div>
+      </div>
+
+      <div class="mcp-section">
+        <div class="mcp-section-title">Bước 2 · Claude Code (từ folder project khác)</div>
+        <pre class="mcp-code" data-copy="1">claude mcp add aigpt -- uv run --project C:/path/to/chatgptimage aigpt-mcp</pre>
+        <div class="hint">Rồi kiểm tra: <code>claude mcp list</code> — và thử "generate an image".</div>
+      </div>
+
+      <div class="mcp-section">
+        <div class="mcp-section-title">Bước 3 · Claude Desktop</div>
+        <pre class="mcp-code" data-copy="1">{
+  "mcpServers": {
+    "aigpt": {
+      "command": "uv",
+      "args": ["run", "--project", "C:/path/to/chatgptimage", "aigpt-mcp"]
+    }
+  }
+}</pre>
+        <div class="hint">Sửa <code>claude_desktop_config.json</code> (Claude Desktop → Settings → Developer → Edit
+          Config).</div>
+      </div>
+
+      <div class="mcp-section">
+        <div class="mcp-section-title">Client khác (Cursor, VS Code, Windsurf…)</div>
+        <div class="hint">Đa số có mục "add MCP server" nhận lệnh chạy. Dùng:</div>
+        <pre class="mcp-code" data-copy="1">uv run --project C:/path/to/chatgptimage aigpt-mcp</pre>
+        <div class="hint">Server này là <strong>stdio</strong> — không có HTTP endpoint.
+          Nếu client cần JSON, dán block giống Bước 3.</div>
+      </div>
+
+      <div class="mcp-section">
+        <div class="mcp-section-title">Tools bạn có</div>
+        <ul class="mcp-tools">
+          <li><code>generate_image</code> — prompt, aspect, số lượng, ảnh tham chiếu (edit / ghép / theo style), brand
+            color, tiếp tục theo conversation</li>
+          <li><code>login_status</code> — xem có bao nhiêu account sẵn sàng</li>
+        </ul>
+      </div>
     </section>
 
     <!-- HISTORY view -->
     <section id="view-history" hidden>
+      <div class="hist-toolbar">
+        <button class="btn tiny" id="histRefreshBtn">🔄 Làm mới</button>
+        <button class="btn tiny ghost" id="histClearBtn">🗑️ Xóa lịch sử</button>
+      </div>
       <div class="hist-grid" id="histGrid"></div>
     </section>
   </main>
 
   <footer>
-    <button class="fbtn" id="fSettings">⚙ Settings</button>
-    <button class="fbtn" id="fHistory">📁 History</button>
+    <button class="fbtn" id="fSettings">⚙ Cài đặt</button>
+    <button class="fbtn" id="fHistory">📁 Lịch sử</button>
     <button class="fbtn" id="fAccount">👤 Account</button>
   </footer>
 
+  <!-- Lightbox Preview Modal -->
+  <div id="previewModal" class="preview-modal" hidden>
+    <div class="pv-backdrop" id="pvBackdrop"></div>
+    <div class="pv-container">
+      <div class="pv-header">
+        <span class="pv-counter" id="pvCounter">1 / 1</span>
+        <div class="pv-header-actions">
+          <button class="btn tiny ghost" id="pvCopyPromptBtn" title="Sao chép prompt">📋 Copy Prompt</button>
+          <button class="pv-close-btn" id="pvCloseBtn" title="Đóng (Esc)">✕</button>
+        </div>
+      </div>
+
+      <div class="pv-body">
+        <button class="pv-nav pv-prev" id="pvPrevBtn" title="Ảnh trước (←)">‹</button>
+        <div class="pv-img-wrap" id="pvImgWrap">
+          <img id="pvImg" src="" alt="GPT Image Preview">
+          <div class="pv-spinner" id="pvSpinner" hidden></div>
+        </div>
+        <button class="pv-nav pv-next" id="pvNextBtn" title="Ảnh sau (→)">›</button>
+      </div>
+
+      <div class="pv-info">
+        <div class="pv-prompt" id="pvPrompt" title="Prompt tạo ảnh"></div>
+        <div class="pv-meta" id="pvMeta"></div>
+      </div>
+
+      <div class="pv-actions">
+        <button class="btn small primary" id="pvDownloadBtn">📥 Tải về</button>
+        <button class="btn small" id="pvCopyImgBtn">🖼️ Sao chép ảnh</button>
+        <button class="btn small" id="pvEditBtn">🛠️ Sửa tiếp</button>
+        <button class="btn small ghost" id="pvOpenTabBtn">↗️ Mở tab</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pvToast" class="pv-toast" hidden></div>
+
   <script src="iframe.js"></script>
 </body>
+
 </html>

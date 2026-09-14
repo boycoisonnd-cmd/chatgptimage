@@ -5,11 +5,19 @@ The generation itself is monkeypatched (never touches the engine/network).
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
-from aigpt import api
+from aigpt import api, storage
 from aigpt.auth.pool import NoQuotaError
+
+
+@pytest.fixture(autouse=True)
+def _isolate_storage(tmp_path, monkeypatch):
+    monkeypatch.setattr(storage, "_IMAGES_ROOT", tmp_path / "storage_images")
+    monkeypatch.setattr(storage, "_INDEX_FILE", tmp_path / "storage_images_index.json")
+
 
 # ---------------------------------------------------------------- exceptions
 
@@ -405,3 +413,119 @@ def test_delete_account_removes_and_reloads(monkeypatch, tmp_path):
     assert sent[1]["removed"] == 1
     assert reloaded
     assert store.load_accounts() == []
+
+
+# ------------------------------------------------------------ storage & fallback
+
+def test_storage_save_lookup_roundtrip(tmp_path):
+    img = tmp_path / "sample.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\nsample-image-bytes")
+    fid = storage.save(img, conversation_id="conv-42")
+    assert fid
+
+    # Lookup returns real guarded path and correct data
+    path = storage.lookup(fid)
+    assert path is not None
+    assert path.exists()
+    assert path.read_bytes() == b"\x89PNG\r\n\x1a\nsample-image-bytes"
+
+    # Index details
+    items = storage.list_items()
+    assert len(items) == 1
+    assert items[0]["id"] == fid
+    assert items[0]["conversation_id"] == "conv-42"
+    assert items[0]["name"].endswith(".png")
+
+
+def test_storage_lookup_rejects_traversal(tmp_path):
+    # Inject a traversal path directly into the index
+    idx = {
+        "items": {
+            "evil": {
+                "rel": "../secret.png",
+                "path": str(tmp_path / "secret.png"),
+                "name": "secret.png",
+                "created_at": "2026-08-27 12:00:00",
+            }
+        }
+    }
+    storage._save_index(idx)
+    assert storage.lookup("evil") is None
+
+
+def test_storage_lookup_cleans_drift(tmp_path):
+    img = tmp_path / "drift.png"
+    img.write_bytes(b"\x89PNG fake")
+    fid = storage.save(img)
+
+    # Delete the stored file on disk
+    path = storage.lookup(fid)
+    assert path is not None
+    path.unlink()
+
+    # Next lookup detects drift, self-heals by removing index row, and returns None
+    assert storage.lookup(fid) is None
+    assert storage.list_items() == []
+
+
+def test_storage_evicts_oldest_over_max(tmp_path, monkeypatch):
+    monkeypatch.setattr(storage, "_INDEX_MAX", 2)
+
+    img1 = tmp_path / "img1.png"
+    img1.write_bytes(b"img1")
+    img2 = tmp_path / "img2.png"
+    img2.write_bytes(b"img2")
+    img3 = tmp_path / "img3.png"
+    img3.write_bytes(b"img3")
+
+    id1 = storage.save(img1)
+    id2 = storage.save(img2)
+    id3 = storage.save(img3)
+
+    # id1 should be evicted (both index and disk file)
+    assert storage.lookup(id1) is None
+    assert storage.lookup(id2) is not None
+    assert storage.lookup(id3) is not None
+    assert len(storage.list_items()) == 2
+
+
+def test_file_by_id_falls_back_to_index(tmp_path):
+    img = tmp_path / "fallback.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\nfallback-bytes")
+
+    file_id = api._register_file(str(img), conversation_id="conv-fallback")
+    # Verify it was registered in memory
+    assert file_id in api._file_registry
+
+    # Clear in-memory registry (simulate server restart)
+    api._file_registry.clear()
+    assert file_id not in api._file_registry
+
+    # _file_by_id should fall back to disk index
+    data, ctype = api._file_by_id(file_id)
+    assert data == b"\x89PNG\r\n\x1a\nfallback-bytes"
+    assert ctype == "image/png"
+
+
+def test_images_endpoint_returns_list(tmp_path):
+    img = tmp_path / "test.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\ntest")
+    fid = storage.save(img, conversation_id="conv-1")
+
+    handler = api.ApiServer.__new__(api.ApiServer)
+    handler.path = "/images"
+    handler.headers = {}
+    handler.server = _FakeApiServer()
+    handler.sent = None
+
+    def _json(status, payload):
+        handler.sent = (status, payload)
+
+    handler._json = _json
+    handler.do_GET()
+
+    assert handler.sent[0] == 200
+    images = handler.sent[1].get("images")
+    assert len(images) == 1
+    assert images[0]["id"] == fid
+    assert images[0]["conversation_id"] == "conv-1"

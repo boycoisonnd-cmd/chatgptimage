@@ -87,7 +87,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === "openTab" && typeof msg.url === "string") {
     try {
       const u = new URL(msg.url);
-      if (u.origin === "https://auth.openai.com") {
+      const isAllowedAuth = u.origin === "https://auth.openai.com";
+      const isAllowedLocalImage =
+        u.origin === "http://127.0.0.1:8789" &&
+        (u.pathname === "/file" || u.pathname.startsWith("/file/"));
+      if (isAllowedAuth || isAllowedLocalImage) {
         chrome.tabs.create({ url: msg.url });
         sendResponse({ ok: true });
         return;

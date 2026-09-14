@@ -3,11 +3,18 @@
   "name": "GPT Image Studio",
   "version": "0.3.0",
   "description": "ChatGPT image generation side panel: generate, edit and review images, backed by the local aigpt server (uv run aigpt-api). Click the toolbar icon to open.",
-  "permissions": ["tabs", "storage", "sidePanel", "webNavigation"],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxLGl4VvrQ1GacCU5RIQXCYcOGoZtBmce7+PYiyza2VMFOzu0P/6GnQ7K8EOk3/f3DG3CfDdJR20iZJvy6izp5FeiNK0d/NykkB4oIKYOJ0h85sVngr69mUrxupPW3+1bWWZaBEEjD3kLNyK4CyV7kE/o8DZ/eu+QvyAoif9mzPlRY38VTGBkvKWfNwDYesEQ/Krf3u7qKVGUWNT6h1plJMWrx1hpoLQmN1pla2CJd8fvzY1oCf+xQMSYSswPNDlsonVTycVvSKuppeStnxXBaXhcDr/EtWMjzw9LhsEGh4JUWOnsJJ4vT1t+zVJCYyAQJRjJX0I7dRkv04sujMVXbwIDAQAB",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["tabs", "storage", "sidePanel", "webNavigation", "nativeMessaging"],
   "host_permissions": [
     "https://platform.openai.com/*",
     "http://127.0.0.1:8788/*",
-    "http://127.0.0.1:8787/*"
+    "http://127.0.0.1:8789/*"
   ],
   "side_panel": {
     "default_path": "iframe.html"
@@ -16,6 +23,11 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "GPT Image Studio"
+    "default_title": "GPT Image Studio",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
   }
 }

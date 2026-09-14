@@ -19,6 +19,11 @@ out/
 # Credentials
 auth.json
 
+# Native Messaging host: private key + machine-specific manifest
+aigpt_ext.key
+extension_id.txt
+extension/native_host/com.aigpt.launcher.json
+
 # OS
 .DS_Store
 Thumbs.db

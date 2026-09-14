@@ -35,15 +35,20 @@ Each `aigpt login` adds **one** account (run again to add more — sign out of c
 ### Option A — Chrome extension (no terminal needed)
 
 1. Load the extension: `chrome://extensions` → enable **Developer mode** → **Load unpacked** → pick the `extension/` folder in this repo.
-2. Make sure the API server is running (the panel needs it): `uv run aigpt-api`.
-3. Open the side panel (click the toolbar icon) and click **Add account** — a ChatGPT login tab opens automatically.
+2. Install the native messaging host (one-time — no admin needed):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\install_native_host.ps1
+   ```
+   Restart Chrome after running this.
+3. Open the side panel (click the toolbar icon) and click **Add account** — the panel auto-starts the local API server, then opens the ChatGPT login tab.
 4. Sign in; the panel finishes the login by itself (extension badge turns **green OK**; the account appears in the panel).
 
-- The panel asks the API server (`POST /login/start` on 8787) to build the OAuth URL and host the 8788 callback receiver — no terminal command needed.
+- The panel auto-starts the API server on first use via the native messaging host (`com.aigpt.launcher` → `extension\native_host\host.bat`), then asks it (`POST /login/start` on 8787) to build the OAuth URL and host the 8788 callback receiver — no terminal command needed.
 - The extension only reads the callback URL (never credentials) and posts it to the local receiver. Badge: **OK** green = login done, **ERR** red = receiver rejected the URL, **!** yellow = receiver not reachable.
 - **Log out**: click **Log out** in the panel — removes the account from the pool immediately.
 - If the receiver port is busy (a stale `aigpt login --wait` still running), the panel reports it — close the old process and click Add account again.
 - Fall back to Option B any time: `uv run aigpt login --callback "<URL>"`.
+- **Native messaging host**: `scripts\install_native_host.ps1` registers the launcher under `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.aigpt.launcher`; `scripts\uninstall_native_host.ps1` removes it. The extension id is pinned via the `"key"` in `extension\manifest.json` — if it ever changes, re-run the installer. If the host is missing, the panel falls back to the manual `uv run aigpt-api` message.
 
 ### Side panel
 
@@ -54,7 +59,7 @@ After loading the extension, **click the toolbar icon** — Chrome opens the GPT
 - **History** — last 60 generations, stored locally (`chrome.storage.local`); click a result to open it; images come from the local API (`/file?id=…`), which restarts with the server
 - **Account row** — shows the active account; **Add account** starts a panel-driven login (no terminal), **Log out** removes the account from the pool
 
-The panel needs `uv run aigpt-api` running (see [HTTP REST API](#http-rest-api)). Reload the extension after updating files: `chrome://extensions` → **Reload**.
+The panel auto-starts the API server on first use (via the native messaging host; see [HTTP REST API](#http-rest-api)). Reload the extension after updating files: `chrome://extensions` → **Reload**.
 
 ### Option B — manual copy-paste
 
@@ -178,9 +183,45 @@ Returns `{"paths": ["C:/abs/path/img-<ts>-0.png", ...], "conversation_id": "..."
 
 > **Mode semantics** (matches ChatGPT): `edit` with 1 ref keeps the subject/identity and applies the instruction; `edit` with 2–4 refs **composes** them and honors the user's numbering ("image 1" / "ảnh 1") if they named one. `style` borrows palette/layout/type/mood only — content is **not** copied. Local file paths are rejected (H4); the CLI reads local files to `data:` URLs for you.
 
+### Use from another project
+
+`aigpt-mcp` shares one account pool (`%APPDATA%\aigpt\auth.json`) across every entry point — CLI, MCP, REST — so **any other project can generate images using the same logged-in accounts**, without re-login or touching this repo's server.
+
+**Get the config with the right path for your machine** — run from this repo's folder (derives the path, works after copying/moving the repo):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\gen_mcp_config.ps1
+```
+
+It prints a ready-to-paste Claude Code command, a Claude Desktop JSON block, and a generic command. `-WriteMcpJson` also writes a `.mcp.json` into the current folder (run it from the other project's directory). The extension's **MCP** panel tab shows the same guide.
+
+Manually: point your MCP client's `command` at `uv run --project <this-repo>` so `uv` resolves `aigpt-mcp` from this repo (replace `<this-repo>` with the actual path):
+
+```json
+{
+  "mcpServers": {
+    "aigpt": {
+      "command": "uv",
+      "args": ["run", "--project", "C:/path/to/chatgptimage", "aigpt-mcp"]
+    }
+  }
+}
+```
+
+Claude Code (project-scoped, from the other project's folder):
+
+```bash
+claude mcp add aigpt -- uv run --project C:/path/to/chatgptimage aigpt-mcp
+```
+
+Notes:
+- **No server needs to be running** — the MCP client spawns `aigpt-mcp` per session over stdio. The REST server on 8787 is only for the Chrome extension side panel; other projects should use MCP, not REST.
+- `generate_image` returns absolute `paths`; read the file there. Local file paths are **not** accepted for `ref_images` — upload as a public `https://` URL or `data:image/...;base64,...`.
+- Accounts are shared. `aigpt login` once from anywhere and every project sees them. `login_status` shows which accounts are alive.
+
 ## HTTP REST API
 
-Start the localhost API server (uses the same account pool as the CLI/MCP):
+Start the localhost API server (uses the same account pool as the CLI/MCP). The Chrome extension auto-starts it via the native messaging host; run it manually when using the CLI/MCP:
 
 ```bash
 uv run aigpt-api            # http://127.0.0.1:8787

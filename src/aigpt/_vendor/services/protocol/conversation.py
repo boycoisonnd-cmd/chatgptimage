@@ -216,9 +216,9 @@ def assistant_history_messages(messages: list[dict[str, Any]]) -> list[str]:
 def build_image_prompt(prompt: str, size: str | None, quality: str = "auto") -> str:
     hints = []
     if size:
-        hints.append(f"输出图片尺寸为 {size}。")
+        hints.append(f"Output image size: {size}.")
     if quality:
-        hints.append(f"输出图片质量为 {quality}。")
+        hints.append(f"Output image quality: {quality}.")
     return f"{prompt.strip()}\n\n{''.join(hints)}" if hints else prompt
 
 

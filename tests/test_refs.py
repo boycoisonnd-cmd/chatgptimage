@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import base64
+import io
 from unittest.mock import patch
 
 import pytest
+from PIL import Image
 
 from aigpt.engine.refs import (
+    _MAX_REF_BYTES,
+    _MAX_REF_DIM,
     _MAX_REFS,
     load_ref_images,
 )
@@ -121,3 +125,66 @@ def test_mime_defaults_to_jpeg_for_unknown():
     with patch("aigpt.engine.refs.curl_requests.get", return_value=FakeResp()):
         refs = load_ref_images(["https://example.com/img"])
     assert refs[0].mime == "image/jpeg"
+
+
+# ------------------------------------------------------------------ compression
+
+def _noisy_png_bytes(width: int, height: int) -> bytes:
+    """Return raw random pixels packed as PNG - PNG noise is near-incompressible."""
+    import random
+
+    rng = random.Random(1234)
+    raw = bytes(rng.getrandbits(8) for _ in range(width * height * 3))
+    buf = io.BytesIO()
+    Image.frombytes("RGB", (width, height), raw).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_compress_reduces_oversized_jpeg():
+    import random
+
+    rng = random.Random(7)
+    raw = bytes(rng.getrandbits(8) for _ in range(3200 * 3200 * 3))
+    buf = io.BytesIO()
+    Image.frombytes("RGB", (3200, 3200), raw).save(buf, format="PNG")
+    big = buf.getvalue()
+    assert len(big) > _MAX_REF_BYTES
+    refs = load_ref_images([_data_url(base64.b64encode(big).decode())])
+    ref = refs[0]
+    assert len(ref.data) < len(big)
+    assert len(ref.data) <= _MAX_REF_BYTES
+    assert ref.mime == "image/jpeg"
+    with Image.open(io.BytesIO(ref.data)) as out:
+        assert max(out.size) <= _MAX_REF_DIM
+
+
+def test_compress_keeps_alpha_as_webp():
+    import random
+
+    rng = random.Random(11)
+    raw = bytes(rng.getrandbits(8) for _ in range(3000 * 3000 * 4))
+    buf = io.BytesIO()
+    Image.frombytes("RGBA", (3000, 3000), raw).save(buf, format="PNG")
+    big = buf.getvalue()
+    assert len(big) > _MAX_REF_BYTES
+    refs = load_ref_images([_data_url(base64.b64encode(big).decode())])
+    ref = refs[0]
+    assert ref.mime == "image/webp"
+    with Image.open(io.BytesIO(ref.data)) as out:
+        assert out.mode in ("RGBA", "LA") or "transparency" in out.info
+
+
+def test_compress_passes_small_images_through():
+    small = _noisy_png_bytes(100, 100)
+    assert len(small) <= _MAX_REF_BYTES
+    refs = load_ref_images([_data_url(base64.b64encode(small).decode())])
+    ref = refs[0]
+    assert ref.data == small
+    assert ref.mime == "image/png"
+
+
+def test_compress_gracefully_passes_undecodable():
+    junk = b"\x89PNG\r\n\x1a\n" + b"junk" * (1024 * 1024)  # not a real PNG
+    refs = load_ref_images([_data_url(base64.b64encode(junk).decode())])
+    assert refs[0].data == junk
+    assert refs[0].mime == "image/png"

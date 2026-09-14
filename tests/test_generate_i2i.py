@@ -233,3 +233,23 @@ def test_transparent_hint_appended_for_edit():
         generate_image("logo", ref_images=[_DATA_URL], transparent=True,
                        enhance=False)
     assert "transparent background" in captured["prompt"]
+
+
+def test_build_image_prompt_has_no_chinese():
+    """size/quality hints must not inject Chinese text into the model prompt."""
+    import re
+
+    import aigpt._vendor_path  # noqa: F401  (vendor on sys.path)
+    from services.protocol.conversation import build_image_prompt
+
+    out = build_image_prompt("x", "1024x1536", "auto")
+    assert re.search(r"[一-鿿]", out) is None, f"prompt contains CJK: {out!r}"
+    assert "Output image size: 1024x1536." in out
+    assert "Output image quality: auto." in out
+
+
+def test_build_image_prompt_no_size_returns_prompt_verbatim():
+    import aigpt._vendor_path  # noqa: F401
+    from services.protocol.conversation import build_image_prompt
+
+    assert build_image_prompt("x", None, None) == "x"

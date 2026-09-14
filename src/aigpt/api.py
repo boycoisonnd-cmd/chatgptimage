@@ -32,6 +32,7 @@ from urllib.parse import parse_qs, urlsplit
 
 # MUST precede vendored imports (sys.path side effect).
 import aigpt._vendor_path  # noqa: F401
+from aigpt import storage
 from aigpt.auth import oauth_login, store
 from aigpt.auth.pool import NoQuotaError
 from aigpt.console import force_utf8
@@ -66,7 +67,7 @@ _registry_lock = threading.Lock()
 _serving_files = False  # set by serve(); _gen registers before it is turned on
 
 
-def _register_file(path: str) -> str:
+def _register_file(path: str, conversation_id: str = "") -> str:
     """Register a generated file and return its public id (keeps registry small)."""
     with _registry_lock:
         if _serving_files:
@@ -74,6 +75,10 @@ def _register_file(path: str) -> str:
                 _file_registry.pop(next(iter(_file_registry), None), None)
         file_id = secrets.token_hex(8)
         _file_registry[file_id] = os.path.abspath(path)
+    try:
+        storage.save(path, conversation_id=conversation_id, file_id=file_id)
+    except Exception:
+        pass
     return file_id
 
 
@@ -82,12 +87,29 @@ def _file_by_id(file_id: str) -> tuple[bytes, str] | None:
     with _registry_lock:
         path = _file_registry.get(file_id)
     if not path:
+        try:
+            stored_path = storage.lookup(file_id)
+            if stored_path:
+                path = str(stored_path)
+        except Exception:
+            return None
+    if not path:
         return None
+    data = None
     try:
         with open(path, "rb") as f:
             data = f.read()
     except OSError:
-        return None
+        try:
+            stored_path = storage.lookup(file_id)
+            if stored_path and str(stored_path) != path:
+                with open(stored_path, "rb") as f:
+                    data = f.read()
+                path = str(stored_path)
+            else:
+                return None
+        except Exception:
+            return None
     if not data:
         return None
     ext = os.path.splitext(path)[1].lower()
@@ -414,7 +436,7 @@ class ApiServer(BaseHTTPRequestHandler):
                 status, body_out = build_response_from_exception(exc)
                 self._json(status, body_out)
                 return
-            files = [_register_file(p) for p in result["paths"]]
+            files = [_register_file(p, result.get("conversation_id", "")) for p in result["paths"]]
             self._json(200, {"paths": result["paths"],
                              "files": [f"/file?id={i}" for i in files],
                              "conversation_id": result.get("conversation_id", "")})
@@ -452,12 +474,21 @@ class ApiServer(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/health":
-            self._json(200, {"ok": True})
+            self._json(200, {"ok": True, "service": "aigpt-api"})
         elif self.path == "/login/status":
             self._json(200, _login_poll())
         elif self.path == "/accounts":
             try:
                 self._json(200, _accounts())
+            except Exception as exc:
+                status, body_out = build_response_from_exception(exc)
+                self._json(status, body_out)
+        elif self.path == "/images":
+            if not self._origin_ok():
+                self._json(403, {"error": "origin not allowed"})
+                return
+            try:
+                self._json(200, {"images": storage.list_items()})
             except Exception as exc:
                 status, body_out = build_response_from_exception(exc)
                 self._json(status, body_out)
