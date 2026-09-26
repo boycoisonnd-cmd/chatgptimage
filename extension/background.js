@@ -88,10 +88,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     try {
       const u = new URL(msg.url);
       const isAllowedAuth = u.origin === "https://auth.openai.com";
+      const isAllowedGoogleAuth =
+        u.origin === "https://accounts.google.com" && u.pathname === "/o/oauth2/v2/auth";
       const isAllowedLocalImage =
         u.origin === "http://127.0.0.1:8789" &&
         (u.pathname === "/file" || u.pathname.startsWith("/file/"));
-      if (isAllowedAuth || isAllowedLocalImage) {
+      if (isAllowedAuth || isAllowedGoogleAuth || isAllowedLocalImage) {
         chrome.tabs.create({ url: msg.url });
         sendResponse({ ok: true });
         return;

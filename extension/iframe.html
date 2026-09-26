@@ -17,28 +17,20 @@
   </header>
 
   <main>
-    <!-- Account -->
-    <div class="account-row" id="accountRow">
-      <div class="who">
-        <div class="avatar" id="avatar">?</div>
-        <div>
-          <div class="name" id="accName">Chưa đăng nhập</div>
-          <div class="sub" id="accSub">chưa có account</div>
-        </div>
-      </div>
-      <button class="btn small" id="accBtn">Thêm account</button>
-    </div>
-
     <!-- Tabs -->
     <div class="tabs">
-      <div class="tab active" data-tab="image">IMAGE</div>
-      <div class="tab" data-tab="edit">EDIT</div>
+      <div class="tab active" data-tab="text-to-image">TEXT TO IMAGE</div>
+      <div class="tab" data-tab="image-to-image">IMAGE TO IMAGE</div>
+      <div class="tab" data-tab="account">ACCOUNT</div>
       <div class="tab" data-tab="mcp">MCP</div>
     </div>
 
-    <!-- IMAGE tab -->
-    <section id="tab-image">
-      <div class="model-chip">🧠 GPT Image 2</div>
+    <!-- TEXT TO IMAGE tab -->
+    <section id="tab-text-to-image">
+      <div class="provider-switch" role="group" aria-label="Chọn provider cho text to image">
+        <button type="button" class="provider-toggle active" data-provider-control="text" data-provider="chatgpt" aria-pressed="true">GPT</button>
+        <button type="button" class="provider-toggle" data-provider-control="text" data-provider="antigravity" aria-pressed="false">Antigravity</button>
+      </div>
 
       <div class="dropzone" id="dropzone">
         <input type="file" id="refFile" accept="image/png,image/jpeg,image/webp">
@@ -53,56 +45,80 @@
       <div id="promptPreview" hidden></div>
       <div class="hint" id="previewHint" hidden>Preview sẽ tự cập nhật theo prompt và ảnh đầu vào.</div>
 
-      <details class="settings">
-        <summary>Cài đặt nâng cao</summary>
+      <div class="row2">
+        <div class="field">
+          <label for="aspect">Aspect</label>
+          <select id="aspect">
+            <option value="1:1" selected>1:1</option>
+            <option value="16:9">16:9</option>
+            <option value="3:4">3:4</option>
+            <option value="4:3">4:3</option>
+            <option value="9:16">9:16</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="n">Số lượng</label>
+          <select id="n">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="provider-config" id="text-gpt-config">
+        <div class="model-chip">GPT Image 2</div>
+        <div class="hint">ChatGPT tự chọn kích thước theo Aspect; không có tuỳ chọn 1K/2K riêng.</div>
+        <details class="settings">
+          <summary>Cài đặt GPT</summary>
+          <div class="row2">
+            <div class="field">
+              <label for="style">Style</label>
+              <select id="style">
+                <option value="auto">auto</option>
+                <option value="slide">slide</option>
+                <option value="fintech">fintech</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="thinking">Thinking</label>
+              <select id="thinking">
+                <option value="auto">auto</option>
+                <option value="standard">standard</option>
+                <option value="extended">extended</option>
+                <option value="max" selected>max</option>
+              </select>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="provider-config" id="text-antigravity-config" hidden>
         <div class="row2">
           <div class="field">
-            <label for="aspect">Aspect</label>
-            <select id="aspect">
-              <option value="16:9">16:9</option>
-              <option value="1:1">1:1</option>
-              <option value="3:4">3:4</option>
-              <option value="4:3">4:3</option>
-              <option value="9:16">9:16</option>
-            </select>
+            <label for="textAgModel">Model</label>
+            <select id="textAgModel"><option value="">Đang tải model…</option></select>
           </div>
           <div class="field">
-            <label for="n">Số lượng</label>
-            <select id="n">
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-            </select>
+            <label for="textAgResolution">Độ phân giải</label>
+                <select id="textAgResolution"><option value="2K" selected>2K</option><option value="1K">1K</option></select>
           </div>
         </div>
-        <div class="row2">
-          <div class="field">
-            <label for="style">Style</label>
-            <select id="style">
-              <option value="auto">auto</option>
-              <option value="slide">slide</option>
-              <option value="fintech">fintech</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="thinking">Thinking</label>
-            <select id="thinking">
-              <option value="auto">auto</option>
-              <option value="standard">standard</option>
-              <option value="extended">extended</option>
-              <option value="max">max</option>
-            </select>
-          </div>
-        </div>
-      </details>
+        <div class="hint" id="textAgHint">Quota dùng theo account Antigravity đang khả dụng.</div>
+      </div>
 
       <button class="btn primary btn-block" id="genBtn">✨ TẠO ẢNH</button>
       <div class="status" id="status"></div>
     </section>
 
-    <!-- EDIT tab -->
-    <section id="tab-edit" hidden>
+    <!-- IMAGE TO IMAGE tab -->
+    <section id="tab-image-to-image" hidden>
+      <div class="provider-switch" role="group" aria-label="Chọn provider cho image to image">
+        <button type="button" class="provider-toggle active" data-provider-control="edit" data-provider="chatgpt" aria-pressed="true">GPT</button>
+        <button type="button" class="provider-toggle" data-provider-control="edit" data-provider="antigravity" aria-pressed="false">Antigravity</button>
+      </div>
+
       <div class="dropzone" id="dropzoneEdit">
         <input type="file" id="editFile" accept="image/png,image/jpeg,image/webp" multiple>
         <span class="dz-label" id="dzLabelEdit">☁️ Tải 1 ảnh để sửa, hoặc 2–4 ảnh để ghép</span>
@@ -116,95 +132,178 @@
         <div class="field">
           <label for="editAspect">Aspect</label>
           <select id="editAspect">
+            <option value="1:1" selected>1:1</option>
             <option value="source">source</option>
             <option value="16:9">16:9</option>
-            <option value="1:1">1:1</option>
             <option value="3:4">3:4</option>
             <option value="4:3">4:3</option>
             <option value="9:16">9:16</option>
           </select>
         </div>
-        <div class="field">
-          <label for="editThinking">Thinking</label>
-          <select id="editThinking">
-            <option value="auto">auto</option>
-            <option value="standard">standard</option>
-            <option value="extended">extended</option>
-            <option value="max">max</option>
-          </select>
+        <div class="field"><label>&nbsp;</label><span class="hint">Giữ nguyên thứ tự ảnh đã tải lên.</span></div>
+      </div>
+
+      <div class="provider-config" id="edit-gpt-config">
+        <div class="model-chip">GPT Image 2</div>
+        <div class="hint">ChatGPT tự chọn kích thước theo Aspect; không có tuỳ chọn 1K/2K riêng.</div>
+        <div class="row2">
+          <div class="field">
+            <label for="editThinking">Thinking</label>
+            <select id="editThinking">
+              <option value="auto">auto</option>
+              <option value="standard">standard</option>
+              <option value="extended">extended</option>
+              <option value="max" selected>max</option>
+            </select>
+          </div>
+          <label class="chk"><input type="checkbox" id="editEnhance"> enhance</label>
         </div>
       </div>
-      <label class="chk"><input type="checkbox" id="editEnhance"> enhance</label>
-      <button class="btn primary btn-block" id="editBtn">🛠 SỬA ẢNH</button>
+
+      <div class="provider-config" id="edit-antigravity-config" hidden>
+        <div class="row2">
+          <div class="field">
+            <label for="editAgModel">Model</label>
+            <select id="editAgModel"><option value="">Đang tải model…</option></select>
+          </div>
+          <div class="field">
+            <label for="editAgResolution">Độ phân giải</label>
+                <select id="editAgResolution"><option value="2K" selected>2K</option><option value="1K">1K</option></select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="editAgN">Số lượng</label>
+          <select id="editAgN"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select>
+        </div>
+      </div>
+
+      <button class="btn primary btn-block" id="editBtn">🛠 SỬA/GHÉP ẢNH</button>
       <div class="status" id="editStatus"></div>
     </section>
 
-    <!-- MCP tab: connect another project to this repo's aigpt-mcp server -->
+    <!-- ACCOUNT tab -->
+    <section id="tab-account" hidden>
+      <div class="account-provider-card">
+        <div class="account-provider-head">
+          <div>
+            <div class="account-provider-title">ChatGPT</div>
+            <div class="hint">Tài khoản dùng cho TEXT TO IMAGE và IMAGE TO IMAGE.</div>
+          </div>
+          <div class="account-provider-actions">
+            <button class="btn small ghost" id="copyChatgptLoginLink" title="Copy link để đăng nhập bằng profile trình duyệt khác">Copy link</button>
+            <button class="btn small" id="accBtn">Mở đăng nhập</button>
+          </div>
+        </div>
+        <div id="chatgptAccounts" class="provider-account-list"></div>
+      </div>
+
+      <div class="account-provider-card antigravity-provider-card">
+        <div class="account-provider-head">
+          <div>
+            <div class="account-provider-title">Antigravity</div>
+            <div class="hint">Google OAuth · model và quota độc lập với ChatGPT.</div>
+          </div>
+          <div class="account-provider-actions">
+            <button class="btn small ghost" id="agCopyLoginLink" title="Copy link để đăng nhập bằng profile trình duyệt khác">Copy link</button>
+            <button class="btn small" id="agAddAccount">Mở đăng nhập</button>
+          </div>
+        </div>
+        <div class="hint account-quota-note">Credits hiển thị đúng dữ liệu Google trả về, không quy đổi thành số ảnh.</div>
+        <div id="agAccounts" class="provider-account-list"></div>
+      </div>
+      <div class="status" id="accountStatus"></div>
+    </section>
+
+    <!-- MCP tab: current dual-provider stdio configuration -->
     <section id="tab-mcp" hidden>
       <div class="mcp-hero">
-        <div class="mcp-title">🔌 Nối project khác vào MCP server này</div>
-        <p>Repo này có sẵn một MCP server (<code>aigpt-mcp</code>) — bất kỳ công cụ
-          nào hỗ trợ MCP (Claude Code, Claude Desktop, Cursor, VS Code, Windsurf…)
-          đều gọi được để tạo ảnh bằng các account ChatGPT đã đăng nhập ở đây.
-          Bên kia không cần cài extension.</p>
+        <div class="mcp-title">MCP · Kết nối công cụ bên ngoài</div>
+        <p>Một MCP server local dùng chung account OAuth của extension. Chọn server
+          ChatGPT hoặc Antigravity trong client; không cần cài extension ở project bên kia.</p>
+      </div>
+
+      <div class="mcp-status-card">
+        <div>
+          <div class="mcp-section-title">Trạng thái credential trên máy này</div>
+          <div class="hint">Chỉ đọc email/trạng thái đã lưu, không hiển thị access token hoặc refresh token.</div>
+        </div>
+        <button class="btn tiny ghost" id="mcpRefreshStatus" type="button">Làm mới</button>
+        <div id="mcpConnectionStatus" class="mcp-provider-status">Chưa kiểm tra</div>
       </div>
 
       <div class="mcp-section">
-        <div class="mcp-section-title">Cách hoạt động</div>
-        <ul class="mcp-tools">
-          <li>Ảnh được tạo qua <strong>backend web ChatGPT</strong> (không phải OpenAI API chính thức, không cần API
-            key).</li>
-          <li>Cần ít nhất 1 account ChatGPT đã đăng nhập — bấm <strong>Thêm account</strong> trong panel này, hoặc chạy
-            <code>uv run aigpt login --wait</code>.</li>
-          <li>Account dùng chung giữa panel / CLI / MCP — đăng nhập 1 lần là đủ cho mọi client.</li>
-        </ul>
-      </div>
-
-      <div class="mcp-section">
-        <div class="mcp-section-title">Bước 1 · Lấy config đúng cho máy này</div>
-        <p class="mcp-note">Chạy script bên dưới trong thư mục repo — nó tự tìm đường
-          dẫn repo, không hardcode, nên đúng cả khi bạn chuyển repo sang máy khác
-          đặt vị trí khác. Copy output rồi dán vào client MCP của bạn.</p>
-        <pre class="mcp-code" data-copy="1">powershell -ExecutionPolicy Bypass -File scripts\gen_mcp_config.ps1</pre>
-        <div class="hint">Chưa muốn chạy script? Các ví dụ bên dưới dùng đường dẫn mẫu
-          <code>C:/path/to/chatgptimage</code> — nhớ thay bằng đường dẫn repo này trên máy bạn.
+        <div class="mcp-section-title">Hai cấu hình provider</div>
+        <div class="mcp-provider-grid">
+          <div class="mcp-provider-card">
+            <div class="mcp-provider-name">ChatGPT</div>
+            <div class="hint">Dùng account ChatGPT OAuth hiện có. Giữ tương thích với lệnh MCP cũ nếu không truyền provider.</div>
+            <pre class="mcp-code" data-copy="1">claude mcp add --scope user aigpt-chatgpt --env AIGPT_MCP_PROVIDER=chatgpt -- uv run --project C:/path/to/chatgptimage aigpt-mcp</pre>
+          </div>
+          <div class="mcp-provider-card antigravity">
+            <div class="mcp-provider-name">Antigravity</div>
+            <div class="hint">Dùng account Google Antigravity OAuth và quota riêng. Hỗ trợ model, 1K/2K, tạo/sửa/ghép ảnh.</div>
+            <pre class="mcp-code" data-copy="1">claude mcp add --scope user aigpt-antigravity --env AIGPT_MCP_PROVIDER=antigravity -- uv run --project C:/path/to/chatgptimage aigpt-mcp</pre>
+          </div>
         </div>
       </div>
 
       <div class="mcp-section">
-        <div class="mcp-section-title">Bước 2 · Claude Code (từ folder project khác)</div>
-        <pre class="mcp-code" data-copy="1">claude mcp add aigpt -- uv run --project C:/path/to/chatgptimage aigpt-mcp</pre>
-        <div class="hint">Rồi kiểm tra: <code>claude mcp list</code> — và thử "generate an image".</div>
-      </div>
-
-      <div class="mcp-section">
-        <div class="mcp-section-title">Bước 3 · Claude Desktop</div>
+        <div class="mcp-section-title">Claude Desktop, Cursor, VS Code, Windsurf</div>
+        <p class="mcp-note">Thay <code>C:/path/to/chatgptimage</code> bằng đường dẫn thật,
+          hoặc chạy script để tự lấy đúng đường dẫn trên máy này.</p>
         <pre class="mcp-code" data-copy="1">{
   "mcpServers": {
-    "aigpt": {
+    "aigpt-chatgpt": {
+      "type": "stdio",
       "command": "uv",
-      "args": ["run", "--project", "C:/path/to/chatgptimage", "aigpt-mcp"]
+      "args": ["run", "--project", "C:/path/to/chatgptimage", "aigpt-mcp"],
+      "env": { "AIGPT_MCP_PROVIDER": "chatgpt" }
+    },
+    "aigpt-antigravity": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--project", "C:/path/to/chatgptimage", "aigpt-mcp"],
+      "env": { "AIGPT_MCP_PROVIDER": "antigravity" }
     }
   }
 }</pre>
-        <div class="hint">Sửa <code>claude_desktop_config.json</code> (Claude Desktop → Settings → Developer → Edit
-          Config).</div>
+        <div class="hint">Cấu hình này là <strong>stdio</strong>: client tự khởi chạy process MCP và giao tiếp qua stdin/stdout.</div>
       </div>
 
       <div class="mcp-section">
-        <div class="mcp-section-title">Client khác (Cursor, VS Code, Windsurf…)</div>
-        <div class="hint">Đa số có mục "add MCP server" nhận lệnh chạy. Dùng:</div>
-        <pre class="mcp-code" data-copy="1">uv run --project C:/path/to/chatgptimage aigpt-mcp</pre>
-        <div class="hint">Server này là <strong>stdio</strong> — không có HTTP endpoint.
-          Nếu client cần JSON, dán block giống Bước 3.</div>
+        <div class="mcp-section-title">Tự sinh config theo đường dẫn hiện tại</div>
+        <pre class="mcp-code" data-copy="1">powershell -ExecutionPolicy Bypass -File scripts\gen_mcp_config.ps1 -WriteMcpJson</pre>
+        <div class="hint">Chạy trong repo này; script sẽ in lệnh Claude Code và ghi <code>.mcp.json</code> vào thư mục hiện tại nếu dùng <code>-WriteMcpJson</code>.</div>
       </div>
 
       <div class="mcp-section">
-        <div class="mcp-section-title">Tools bạn có</div>
+        <div class="mcp-section-title">API key / OAuth</div>
+        <div class="mcp-note">MCP local vẫn dùng OAuth ChatGPT/Google đã đăng nhập. API key là lớp xác thực tùy chọn
+          cho client MCP yêu cầu credential riêng; key này không thay thế và không chứa access/refresh token.</div>
+        <div class="mcp-key-actions">
+          <button class="btn small" id="mcpCreateApiKey" type="button">Tạo API key</button>
+          <button class="btn small ghost" id="mcpRevokeApiKey" type="button" hidden>Thu hồi key</button>
+        </div>
+        <div id="mcpApiKeyStatus" class="mcp-key-status">Chưa tạo API key.</div>
+        <div id="mcpApiKeyReveal" class="mcp-key-reveal" hidden>
+          <div class="hint">Key chỉ hiện đầy đủ một lần. Hãy copy và lưu vào password manager.</div>
+          <div class="mcp-key-copy-row">
+            <input id="mcpApiKeyValue" type="text" readonly autocomplete="off" spellcheck="false">
+            <button class="btn small ghost" id="mcpCopyApiKey" type="button">Copy key</button>
+          </div>
+          <pre id="mcpApiKeyEnvExample" class="mcp-code" data-copy="1">AIGPT_MCP_API_KEY=&lt;dán key vừa tạo&gt;</pre>
+          <div class="hint">Đặt biến này trong <code>env</code> của MCP client. Khi có biến này, process MCP sẽ từ chối key sai.</div>
+        </div>
+        <div class="hint">Không copy access token hoặc refresh token vào MCP config. Nếu không tạo API key,
+          stdio local vẫn hoạt động như trước.</div>
+      </div>
+
+      <div class="mcp-section">
+        <div class="mcp-section-title">Tools hiện có</div>
         <ul class="mcp-tools">
-          <li><code>generate_image</code> — prompt, aspect, số lượng, ảnh tham chiếu (edit / ghép / theo style), brand
-            color, tiếp tục theo conversation</li>
-          <li><code>login_status</code> — xem có bao nhiêu account sẵn sàng</li>
+          <li><code>generate_image</code> — thêm <code>provider=chatgpt|antigravity</code>; Antigravity nhận <code>model</code>, <code>resolution</code>, aspect, số lượng và tối đa 4 ảnh tham chiếu.</li>
+          <li><code>login_status</code> — xem trạng thái account của cả ChatGPT và Antigravity, không trả token.</li>
+          <li><code>list_image_models</code> — xem model GPT Image 2 hoặc danh sách model ảnh Antigravity hiện có.</li>
         </ul>
       </div>
     </section>

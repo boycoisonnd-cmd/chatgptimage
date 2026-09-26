@@ -227,6 +227,52 @@ main {
   color: var(--accent-2);
 }
 
+.provider-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 3px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.provider-toggle {
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.provider-toggle:hover {
+  background: var(--accent-dim);
+  color: var(--accent-2);
+}
+
+.provider-toggle.active {
+  border-color: rgba(47, 128, 209, 0.28);
+  background: var(--accent-dim);
+  color: var(--accent-2);
+}
+
+.provider-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.provider-config {
+  margin: 8px 0 10px;
+}
+
 /* ---------- form ---------- */
 .model-chip {
   display: inline-flex;
@@ -569,6 +615,51 @@ footer .fbtn:hover {
   line-height: 1.5;
 }
 
+#tab-mcp .mcp-status-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+#tab-mcp .mcp-status-card .mcp-provider-status {
+  grid-column: 1 / -1;
+  min-height: 18px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: pre-line;
+}
+
+#tab-mcp .mcp-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#tab-mcp .mcp-provider-card {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+#tab-mcp .mcp-provider-card.antigravity {
+  border-color: rgba(127, 92, 255, .36);
+  background: rgba(127, 92, 255, .06);
+}
+
+#tab-mcp .mcp-provider-name {
+  margin-bottom: 4px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 #tab-mcp .mcp-section {
   margin-top: 12px;
 }
@@ -582,6 +673,7 @@ footer .fbtn:hover {
 
 #tab-mcp #mcpCmd,
 #tab-mcp .mcp-code {
+  box-sizing: border-box;
   width: 100%;
   background: #10142a;
   color: #cfe3ff;
@@ -593,6 +685,12 @@ footer .fbtn:hover {
   word-break: break-word;
   cursor: text;
   margin-bottom: 4px;
+}
+
+#tab-mcp .mcp-provider-card .mcp-code {
+  min-height: 88px;
+  margin-top: 7px;
+  margin-bottom: 0;
 }
 
 #tab-mcp .mcp-tools {
@@ -612,6 +710,55 @@ footer .fbtn:hover {
   border-left: 3px solid var(--accent);
   border-radius: 6px;
   padding: 7px 9px;
+}
+
+#tab-mcp .mcp-key-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 6px;
+}
+
+#tab-mcp .mcp-key-status {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+#tab-mcp .mcp-key-reveal {
+  padding: 8px;
+  border: 1px solid rgba(56, 189, 248, .28);
+  border-radius: 8px;
+  background: rgba(14, 116, 144, .1);
+}
+
+#tab-mcp .mcp-key-copy-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+#tab-mcp .mcp-key-copy-row input {
+  min-width: 0;
+  flex: 1;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  color: #dbeafe;
+  background: #10142a;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font: 10.5px Consolas, "Cascadia Mono", monospace;
+}
+
+#tab-mcp .mcp-key-reveal .mcp-code {
+  margin-bottom: 4px;
+}
+
+@media (max-width: 420px) {
+  #tab-mcp .mcp-provider-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ---------- hint / help text ---------- */
@@ -901,4 +1048,86 @@ footer .fbtn:hover {
 
 @keyframes pvSpin {
   to { transform: rotate(360deg); }
+}
+
+/* ---------- Account manager ---------- */
+.ag-avatar {
+  background: linear-gradient(135deg, #7c3aed, #2563eb);
+}
+
+.account-provider-card {
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.antigravity-provider-card {
+  border-color: rgba(167, 139, 250, 0.35);
+  background: rgba(91, 33, 182, 0.09);
+}
+
+.account-provider-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.account-provider-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.account-provider-title {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.provider-account-list {
+  display: grid;
+  gap: 7px;
+}
+
+.provider-account-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.provider-account-info { min-width: 0; flex: 1; }
+.provider-account-email {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.provider-account-meta { margin-top: 2px; color: var(--muted); font-size: 10.5px; }
+.provider-account-empty {
+  padding: 12px 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+.account-quota-note { margin: -2px 0 9px; }
+#tab-account #accountStatus { min-height: 26px; }
+#tab-text-to-image .status,
+#tab-image-to-image .status { min-height: 24px; }
+
+@media (max-width: 420px) {
+  .tabs .tab { font-size: 10px; }
+  .account-provider-head { align-items: flex-start; }
+  .account-provider-actions { max-width: 145px; }
 }

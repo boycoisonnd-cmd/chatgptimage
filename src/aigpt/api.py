@@ -25,6 +25,7 @@ import secrets
 import socket
 import sys
 import threading
+import tempfile
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -67,7 +68,7 @@ _registry_lock = threading.Lock()
 _serving_files = False  # set by serve(); _gen registers before it is turned on
 
 
-def _register_file(path: str, conversation_id: str = "") -> str:
+def _register_file(path: str, conversation_id: str = "", metadata: dict[str, Any] | None = None) -> str:
     """Register a generated file and return its public id (keeps registry small)."""
     with _registry_lock:
         if _serving_files:
@@ -76,10 +77,30 @@ def _register_file(path: str, conversation_id: str = "") -> str:
         file_id = secrets.token_hex(8)
         _file_registry[file_id] = os.path.abspath(path)
     try:
-        storage.save(path, conversation_id=conversation_id, file_id=file_id)
+        storage.save(path, conversation_id=conversation_id, file_id=file_id, metadata=metadata)
     except Exception:
         pass
     return file_id
+
+
+def _register_bytes(data: bytes, mime: str, metadata: dict[str, Any] | None = None) -> tuple[str, str]:
+    """Register an upstream image without exposing a temporary path to callers."""
+    ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}.get(mime, ".png")
+    fd, temp_path = tempfile.mkstemp(prefix="aigpt-antigravity-", suffix=ext)
+    os.close(fd)
+    try:
+        with open(temp_path, "wb") as handle:
+            handle.write(data)
+        file_id = _register_file(temp_path, metadata=metadata)
+        stored = storage.lookup(file_id)
+        if stored is None:
+            raise RuntimeError("could not persist Antigravity image")
+        return str(stored), file_id
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
 
 
 def _file_by_id(file_id: str) -> tuple[bytes, str] | None:
@@ -360,6 +381,49 @@ def _login_poll() -> dict:
         return st
 
 
+def _antigravity_generate(payload: dict[str, Any]) -> dict[str, Any]:
+    from aigpt.antigravity.service import get_service
+
+    result = get_service().generate(payload)
+    paths: list[str] = []
+    files: list[str] = []
+    for mime, data in result["images"]:
+        path, file_id = _register_bytes(data, mime, metadata={
+            "provider": "antigravity", "model": result.get("model"),
+            "resolution": result.get("resolution"), "account_email": result.get("account_email"),
+        })
+        paths.append(path)
+        files.append(f"/file?id={file_id}")
+    if not paths:
+        raise RuntimeError("Antigravity response did not contain an image")
+    return {"paths": paths, "files": files, "provider": "antigravity",
+            "model": result.get("model", ""), "resolution": result.get("resolution", ""),
+            "account_email": result.get("account_email", "")}
+
+
+def _build_antigravity_error(exc: BaseException) -> tuple[int, dict[str, Any]]:
+    from aigpt.antigravity.client import AntigravityAuthError, AntigravityHTTPError
+    if isinstance(exc, ValueError):
+        return 400, {"error": str(exc)}
+    if isinstance(exc, AntigravityAuthError):
+        return 401, {"error": str(exc)}
+    if isinstance(exc, AntigravityHTTPError):
+        if exc.status == 429 or exc.quota:
+            body: dict[str, Any] = {"error": str(exc)}
+            if exc.retry_after is not None:
+                body["retry_after_seconds"] = exc.retry_after
+            return 429, body
+        if exc.status in (400, 404):
+            detail = str(exc)
+            if "2k" in detail.lower() or "image_size" in detail.lower():
+                detail += " — model/account may not support 2K; try 1K or another model"
+            return 400, {"error": detail}
+        return 502, {"error": str(exc)}
+    if isinstance(exc, RuntimeError):
+        return 502, {"error": str(exc)}
+    return 500, {"error": "internal error"}
+
+
 class _ApiHTTPServer(ThreadingHTTPServer):
     """ThreadingHTTPServer with a shared generation semaphore.
 
@@ -377,7 +441,7 @@ class _ApiHTTPServer(ThreadingHTTPServer):
         super().server_bind()
 
 class ApiServer(BaseHTTPRequestHandler):
-    """JSON REST endpoints: /generate_image, /accounts, /health, /file."""
+    """JSON REST endpoints for ChatGPT and Antigravity image generation."""
 
     server_version = "aigpt-api"
 
@@ -392,6 +456,32 @@ class ApiServer(BaseHTTPRequestHandler):
         return origin is None or origin.startswith(_EXTENSION_ORIGIN_PREFIX)
 
     def do_POST(self) -> None:
+        if self.path == "/mcp/api-key":
+            if not self._origin_ok():
+                self._json(403, {"error": "origin not allowed"})
+                return
+            try:
+                from aigpt import mcp_key
+                value, public = mcp_key.create()
+                self._json(200, {
+                    **public,
+                    "api_key": value,
+                    "warning": "Save this key now; it will not be shown again.",
+                })
+            except Exception:
+                self._json(500, {"error": "could not create MCP API key"})
+            return
+        if self.path == "/antigravity/login/start":
+            if not self._origin_ok():
+                self._json(403, {"error": "origin not allowed"})
+                return
+            try:
+                from aigpt.antigravity.service import get_service
+                self._json(200, get_service().start_login())
+            except Exception as exc:
+                status, body = _build_antigravity_error(exc)
+                self._json(status, body)
+            return
         if self.path == "/login/start":
             if not self._origin_ok():
                 self._json(403, {"error": "origin not allowed"})
@@ -407,6 +497,49 @@ class ApiServer(BaseHTTPRequestHandler):
                 pass
             status, body_out = _login_start(email)
             self._json(status, body_out)
+            return
+        if self.path == "/antigravity/generate":
+            if not self._origin_ok():
+                self._json(403, {"error": "origin not allowed"})
+                return
+            sem = self.server.semaphore
+            if not sem.acquire(blocking=False):
+                self._json(409, {"busy": True, "error": "another generation in progress - retry later"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > _MAX_BODY:
+                    self._json(413, {"error": f"body too large (>{_MAX_BODY} bytes)"})
+                    return
+                try:
+                    payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                    if not isinstance(payload, dict):
+                        raise ValueError("expected JSON object")
+                    allowed = {"prompt", "model", "mode", "aspect", "resolution", "n", "ref_images"}
+                    unknown = sorted(set(payload) - allowed)
+                    if unknown:
+                        raise ValueError(f"unknown parameter(s): {', '.join(unknown)}")
+                    payload["prompt"] = str(payload.get("prompt") or "").strip()
+                    if not payload["prompt"]:
+                        raise ValueError('missing "prompt" string')
+                    payload["n"] = int(payload.get("n") or 1)
+                    payload["resolution"] = str(payload.get("resolution") or "1K").upper()
+                    refs = payload.get("ref_images") or []
+                    if not isinstance(refs, list):
+                        raise ValueError("ref_images must be a list")
+                    payload["ref_images"] = refs
+                except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                    self._json(400, {"error": str(exc)})
+                    return
+                try:
+                    result = _antigravity_generate(payload)
+                except Exception as exc:
+                    status, body = _build_antigravity_error(exc)
+                    self._json(status, body)
+                    return
+                self._json(200, result)
+            finally:
+                sem.release()
             return
         if self.path != "/generate_image":
             self._json(404, {"error": "not found"})
@@ -445,6 +578,37 @@ class ApiServer(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         """DELETE /account?email=... or ?user_id=... - remove one account."""
+        if self.path == "/mcp/api-key":
+            if not self._origin_ok():
+                self._json(403, {"error": "origin not allowed"})
+                return
+            try:
+                from aigpt import mcp_key
+                removed = mcp_key.revoke()
+                self._json(200, {"ok": True, "revoked": removed})
+            except Exception:
+                self._json(500, {"error": "could not revoke MCP API key"})
+            return
+        if self.path.startswith("/antigravity/account"):
+            if not self._origin_ok():
+                self._json(403, {"error": "origin not allowed"})
+                return
+            q = parse_qs(urlsplit(self.path).query)
+            email = (q.get("email") or [""])[0].strip()
+            if not email:
+                self._json(400, {"error": "missing ?email= param"})
+                return
+            try:
+                from aigpt.antigravity.service import get_service
+                from aigpt.antigravity import store as ag_store
+                removed = ag_store.remove(email)
+                if removed:
+                    get_service()._active_by_model = {}
+                self._json(200 if removed else 404, {"ok": bool(removed), "removed": removed})
+            except Exception as exc:
+                status, body = _build_antigravity_error(exc)
+                self._json(status, body)
+            return
         if self.path.startswith("/account"):
             if not self._origin_ok():
                 self._json(403, {"error": "origin not allowed"})
@@ -473,8 +637,43 @@ class ApiServer(BaseHTTPRequestHandler):
         self._json(404, {"error": "not found"})
 
     def do_GET(self) -> None:
-        if self.path == "/health":
+        if self.path == "/mcp/api-key":
+            if not self._origin_ok():
+                self._json(403, {"error": "origin not allowed"})
+                return
+            try:
+                from aigpt import mcp_key
+                self._json(200, mcp_key.status())
+            except Exception:
+                self._json(500, {"error": "could not read MCP API key status"})
+        elif self.path == "/health":
             self._json(200, {"ok": True, "service": "aigpt-api"})
+        elif self.path == "/antigravity/login/status":
+            if not self._origin_ok():
+                self._json(403, {"error": "origin not allowed"})
+                return
+            from aigpt.antigravity.service import get_service
+            self._json(200, get_service().login_status())
+        elif self.path == "/antigravity/accounts":
+            if not self._origin_ok():
+                self._json(403, {"error": "origin not allowed"})
+                return
+            try:
+                from aigpt.antigravity.service import get_service
+                self._json(200, {"accounts": get_service().accounts()})
+            except Exception as exc:
+                status, body = _build_antigravity_error(exc)
+                self._json(status, body)
+        elif self.path == "/antigravity/models":
+            if not self._origin_ok():
+                self._json(403, {"error": "origin not allowed"})
+                return
+            try:
+                from aigpt.antigravity.service import get_service
+                self._json(200, get_service().models())
+            except Exception as exc:
+                status, body = _build_antigravity_error(exc)
+                self._json(status, body)
         elif self.path == "/login/status":
             self._json(200, _login_poll())
         elif self.path == "/accounts":
@@ -536,13 +735,13 @@ def main(argv: list[str] | None = None) -> int:
     force_utf8()  # UTF-8 so non-ASCII error text never crashes a cp1252 console
     p = argparse.ArgumentParser(
         prog="aigpt-api",
-        description="Localhost REST API for ChatGPT image generation "
-                    "(default http://127.0.0.1:8787)",
+        description="Localhost REST API for ChatGPT and Antigravity image generation "
+                    "(default http://127.0.0.1:8789)",
     )
     p.add_argument("--host", default="127.0.0.1",
                    help="interface to bind (default 127.0.0.1; use 0.0.0.0 only "
                         "if you want LAN clients - they can then use your accounts)")
-    p.add_argument("--port", type=int, default=8787, help="port (default 8787)")
+    p.add_argument("--port", type=int, default=8789, help="port (default 8789)")
     args = p.parse_args(argv)
     server = serve(args.host, args.port)
     host, port = server.server_address[:2]

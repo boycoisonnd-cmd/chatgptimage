@@ -10,6 +10,15 @@ from __future__ import annotations
 
 from typing import Literal
 
+# Provider selection for the shared MCP image tool. ``auto`` keeps the
+# backwards-compatible ChatGPT default unless the MCP server is configured
+# with AIGPT_MCP_PROVIDER=antigravity.
+Provider = Literal["auto", "chatgpt", "antigravity"]
+
+# Antigravity image sizes. ChatGPT does not receive this field; it chooses the
+# wire dimensions from the aspect ratio instead.
+Resolution = Literal["1K", "2K"]
+
 # Image reasoning effort, sent to ChatGPT's image backend as `thinking_effort`.
 # "auto" sends no field (ChatGPT default). standard < extended < max.
 Thinking = Literal["auto", "standard", "extended", "max"]

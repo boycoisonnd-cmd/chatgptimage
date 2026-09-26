@@ -72,7 +72,8 @@ def _guard_rel(rel: str | None) -> Path | None:
     return target
 
 
-def save(image_path: str | Path, conversation_id: str = "", file_id: str | None = None) -> str:
+def save(image_path: str | Path, conversation_id: str = "", file_id: str | None = None,
+         metadata: dict[str, Any] | None = None) -> str:
     """Copy an image into durable storage, update the index, and evict old entries.
 
     Returns the file_id string.
@@ -117,6 +118,8 @@ def save(image_path: str | Path, conversation_id: str = "", file_id: str | None 
             "webdav": False,
             "conversation_id": conversation_id or "",
         }
+        if metadata:
+            items[assigned_id].update({str(k): v for k, v in metadata.items() if v is not None})
 
         # Evict oldest if exceeding _INDEX_MAX
         if len(items) > _INDEX_MAX:

@@ -1,78 +1,85 @@
-# Generates MCP client config pointing at THIS repo's aigpt-mcp server.
-# Run it on any machine where the repo lives - the path is derived, never
-# hardcoded, so the config works after copying/moving the repo elsewhere.
+# Generate current MCP client configuration for both image providers.
 #
-# Prints to stdout:
-#   - Claude Code command (claude mcp add ...)
-#   - Claude Desktop JSON block (mcpServers)
-#   - Generic command for other clients (Cursor, VS Code, Windsurf, ...)
-#
-# Optional:  -WriteMcpJson   also writes a .mcp.json into the CURRENT directory
-#                            (run from another project's folder to get its
-#                            config ready in one step).
+# The server runs locally over stdio. ChatGPT and Antigravity credentials are
+# read from this machine's existing OAuth stores; no API key is embedded in
+# the generated JSON.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\gen_mcp_config.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\gen_mcp_config.ps1 -WriteMcpJson
-#
-# No admin needed. Idempotent.
+#   powershell -ExecutionPolicy Bypass -File scripts\gen_mcp_config.ps1 -ApiKey aigpt_...
 
 param(
-    [switch]$WriteMcpJson
+    [switch]$WriteMcpJson,
+    [string]$ApiKey = ''
 )
 
 $ErrorActionPreference = 'Stop'
 
-# ---- locate repo root (this script lives in <repo>\scripts) ----
+# This script lives in <repo>\scripts, so the path remains valid if the repo
+# is moved to another drive or machine.
 $repoRoot = Split-Path -Parent $PSScriptRoot
-
-# Forward slashes so the path matches what uv/claude expect on Windows.
 $repoPath = ($repoRoot -replace '\\', '/')
 
-$claudeCodeCmd  = "claude mcp add aigpt -- uv run --project $repoPath aigpt-mcp"
-$genericCmd     = "uv run --project $repoPath aigpt-mcp"
-
-$claudeDesktopJson = @{
-    mcpServers = @{
-        aigpt = @{
-            command = 'uv'
-            args    = @('run', '--project', $repoPath, 'aigpt-mcp')
-        }
+function New-McpServerEntry([string]$provider, [string]$apiKey) {
+    $env = [ordered]@{ AIGPT_MCP_PROVIDER = $provider }
+    if ($apiKey) {
+        $env.AIGPT_MCP_API_KEY = $apiKey
     }
-} | ConvertTo-Json -Depth 4
+    return [ordered]@{
+        type    = 'stdio'
+        command = 'uv'
+        args    = @('run', '--project', $repoPath, 'aigpt-mcp')
+        env     = $env
+    }
+}
+
+$config = [ordered]@{
+    mcpServers = [ordered]@{
+        'aigpt-chatgpt'     = New-McpServerEntry 'chatgpt' $ApiKey
+        'aigpt-antigravity' = New-McpServerEntry 'antigravity' $ApiKey
+    }
+}
+$configJson = $config | ConvertTo-Json -Depth 8
+
+$keyEnv = if ($ApiKey) { " --env AIGPT_MCP_API_KEY=$ApiKey" } else { '' }
+$chatgptCmd = "claude mcp add --scope user aigpt-chatgpt --env AIGPT_MCP_PROVIDER=chatgpt$keyEnv -- uv run --project $repoPath aigpt-mcp"
+$antigravityCmd = "claude mcp add --scope user aigpt-antigravity --env AIGPT_MCP_PROVIDER=antigravity$keyEnv -- uv run --project $repoPath aigpt-mcp"
+$genericCmd = "uv run --project $repoPath aigpt-mcp"
 
 Write-Host ""
-Write-Host "Repo (derived, no hardcode): $repoPath"
+Write-Host "Repo: $repoPath"
 Write-Host ""
-
-Write-Host "== Claude Code (chay tu folder project khac) =="
-Write-Host $claudeCodeCmd
-Write-Host "   Kiem tra: claude mcp list"
+Write-Host "== Claude Code: ChatGPT =="
+Write-Host $chatgptCmd
 Write-Host ""
-
-Write-Host "== Claude Desktop (Settings -> Developer -> Edit Config) =="
-Write-Host $claudeDesktopJson
+Write-Host "== Claude Code: Antigravity =="
+Write-Host $antigravityCmd
 Write-Host ""
-
-Write-Host "== Client khac (Cursor, VS Code, Windsurf...) - stdin/stdio =="
+Write-Host "== Claude Desktop / Cursor / VS Code / Windsurf =="
+Write-Host "Paste this JSON into the client's MCP configuration:"
+Write-Host $configJson
+Write-Host ""
+Write-Host "== Generic stdio command =="
 Write-Host $genericCmd
-Write-Host ""
+Write-Host "The provider can also be selected in the generate_image tool with provider=chatgpt or provider=antigravity."
+if ($ApiKey) {
+    Write-Host "The supplied API key is included in env and will be validated when the MCP process starts."
+} else {
+    Write-Host "No API key is required for this local stdio setup; OAuth accounts stay on this machine."
+}
 
 if ($WriteMcpJson) {
     $outPath = Join-Path (Get-Location) '.mcp.json'
-    $json = @{
-        mcpServers = @{
-            aigpt = @{
-                command = 'uv'
-                args    = @('run', '--project', $repoPath, 'aigpt-mcp')
-            }
-        }
-    } | ConvertTo-Json -Depth 4
-    [System.IO.File]::WriteAllText($outPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+    [System.IO.File]::WriteAllText(
+        $outPath,
+        $configJson + [Environment]::NewLine,
+        (New-Object System.Text.UTF8Encoding($false))
+    )
+    Write-Host ""
     Write-Host "Da ghi: $outPath"
 }
 
 Write-Host ""
-Write-Host "Mac dinh (tu folder project khac):"
-Write-Host "  claude mcp add aigpt -- uv run --project $repoPath aigpt-mcp"
+Write-Host "Kiem tra Claude Code: claude mcp list"
 exit 0
